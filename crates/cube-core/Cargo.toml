@@ -1,0 +1,12 @@
+[package]
+name = "cube-core"
+version = "0.1.0"
+description = "Rubik's cube state, move notation and SVG rendering"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1.12.0"
