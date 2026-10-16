@@ -1,0 +1,8 @@
+[build]
+dist = "dist"
+filehash = true
+minify = "on_release"
+
+[serve]
+port = 8088
+open = false

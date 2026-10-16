@@ -1,0 +1,19 @@
+[workspace]
+members = ["crates/cube-core", "crates/cube-web", "crates/cube-export"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/twaclaw/cube"
+
+[workspace.dependencies]
+cube-core = { path = "crates/cube-core" }
+
+# Small, fast wasm: optimize for size and let wasm-opt finish the job.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
