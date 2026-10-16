@@ -1,0 +1,14 @@
+[package]
+name = "cube-web"
+version = "0.1.0"
+description = "Browser front end for the cube visualizer"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+cube-core.workspace = true
+js-sys = "0.3.106"
+wasm-bindgen = "0.2.129"
+web-sys = { version = "0.3.106", features = ["Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlSelectElement", "HtmlButtonElement", "HtmlAnchorElement", "HtmlTextAreaElement", "Event", "EventTarget", "MouseEvent", "WheelEvent", "KeyboardEvent", "PointerEvent", "Blob", "BlobPropertyBag", "Url", "Location", "UrlSearchParams", "Navigator", "Clipboard", "DomRect", "CssStyleDeclaration", "DomTokenList", "Performance", "DomStringMap", "console"] }
