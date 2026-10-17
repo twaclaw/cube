@@ -62,6 +62,7 @@
       <button type="submit">load</button>
     </form>
     <p class="status" id="status" role="status">Enter a maneuver, then step or play it.</p>
+    <dl class="solution" id="solution"></dl>
 
     <div class="transport" role="group" aria-label="playback">
       <button type="button" id="to-start" title="back to the start">&#9198;</button>
@@ -80,8 +81,8 @@
     <div class="actions">
       <button type="button" id="scramble">scramble</button>
       <button type="button" id="solved">solved</button>
-      <button type="button" id="solve" disabled
-              title="the two-phase solver lands here later">solve</button>
+      <button type="button" id="solve"
+              title="Kociemba's two-phase algorithm">solve</button>
       <label>cube
         <select id="size" aria-label="cube size">
           <option>2</option><option selected>3</option><option>4</option>

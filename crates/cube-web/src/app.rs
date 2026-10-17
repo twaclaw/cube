@@ -10,6 +10,8 @@ use cube_core::render::Highlights;
 use cube_core::render::cube3d::{self, Anim, CAMERA_PRESETS, Camera, Style3d};
 use cube_core::render::net::{self, NetStyle};
 use cube_core::scramble::{Rng, scramble};
+use cube_core::solver::search::Limits;
+use cube_core::solver::{Kociemba, SolveError};
 use cube_core::{Cube, Permutation, Turn};
 
 /// A turn being drawn, between two states.
@@ -44,6 +46,10 @@ pub struct App {
     pub export_flat: bool,
     pub export_bg: bool,
     pub export_steps: usize,
+    /// Built on the first solve and kept: the tables cost a moment.
+    solver: Option<Kociemba>,
+    /// Where phase 1 ends, when the maneuver came from the solver.
+    phase_split: Option<usize>,
 }
 
 impl App {
@@ -71,6 +77,8 @@ impl App {
             export_flat: false,
             export_bg: true,
             export_steps: 8,
+            solver: None,
+            phase_split: None,
         }
     }
 
@@ -216,15 +224,21 @@ impl App {
     fn render_chips(&self) {
         let mut html = String::new();
         for (i, m) in self.moves.iter().enumerate() {
-            let class = if i < self.cursor {
-                "done"
-            } else if i == self.cursor {
-                "current"
+            let mut class = match i.cmp(&self.cursor) {
+                core::cmp::Ordering::Less => "done".to_string(),
+                core::cmp::Ordering::Equal => "current".to_string(),
+                core::cmp::Ordering::Greater => String::new(),
+            };
+            if self.phase_split == Some(i) {
+                class.push_str(" phase2");
+            }
+            let title = if self.phase_split == Some(i) {
+                "phase 2 starts here"
             } else {
-                ""
+                "jump here"
             };
             html.push_str(&format!(
-                "<li class=\"{class}\" data-step=\"{}\" title=\"jump here\">{}</li>",
+                "<li class=\"{class}\" data-step=\"{}\" title=\"{title}\">{}</li>",
                 i + 1,
                 html_escape(&m.name)
             ));
@@ -245,6 +259,7 @@ impl App {
             ("step-fwd", self.cursor < self.moves.len()),
             ("to-end", self.cursor < self.moves.len()),
             ("play", !self.moves.is_empty()),
+            ("solve", self.n == 3),
         ] {
             let el: web_sys::HtmlButtonElement =
                 wasm_bindgen::JsCast::unchecked_into(dom::by_id(id));
@@ -278,6 +293,8 @@ impl App {
 
     pub fn load(&mut self, text: &str) -> Result<(), String> {
         let moves = notation::parse(self.n, text).map_err(|e| e.to_string())?;
+        self.phase_split = None;
+        dom::set_html("solution", "");
         self.moves = moves;
         self.cursor = 0;
         self.base = self.cube.clone();
@@ -417,12 +434,82 @@ impl App {
         self.say("Solved state.", false);
     }
 
+    /// Whether the tables are already built.
+    pub fn solver_ready(&self) -> bool {
+        self.solver.is_some()
+    }
+
+    /// Solve the cube as it stands, and load the answer as the maneuver.
+    pub fn solve(&mut self) {
+        if self.n != 3 {
+            self.say("The solver knows the 3x3x3 only.", true);
+            return;
+        }
+        if self.cube.is_solved() {
+            self.say("Already solved.", false);
+            return;
+        }
+        let solver = self.solver.get_or_insert_with(Kociemba::new);
+        let started = dom::now();
+        let found = solver.solve_with(&self.cube, Limits::default());
+        let elapsed = dom::now() - started;
+        let solution = match found {
+            Ok(solution) => solution,
+            Err(SolveError::Unreachable) => {
+                self.say(
+                    "These colors are not a cube that turning faces can reach.",
+                    true,
+                );
+                return;
+            }
+            Err(e) => {
+                self.say(&e.to_string(), true);
+                return;
+            }
+        };
+
+        let moves = solution.moves();
+        let text = notation::format(&moves);
+        dom::input("sequence").set_value(&text);
+        self.base = self.cube.clone();
+        self.moves = moves;
+        self.cursor = 0;
+        self.playing = false;
+        self.running = None;
+        self.phase_split = Some(solution.phase1.len());
+        dom::set_html(
+            "solution",
+            &format!(
+                "{}{}",
+                phase_row(
+                    "phase 1",
+                    &solution.phase1,
+                    "into \u{27e8}U, D, R2, L2, F2, B2\u{27e9}",
+                ),
+                phase_row("phase 2", &solution.phase2, "inside it, to the solved cube"),
+            ),
+        );
+        self.render();
+        self.say(
+            &format!(
+                "Solved in {} moves: {} + {}. Found in {elapsed:.0} ms, {} nodes.",
+                solution.len(),
+                solution.phase1.len(),
+                solution.phase2.len(),
+                solution.nodes
+            ),
+            false,
+        );
+    }
+
     fn set_state(&mut self, cube: Cube) {
         self.cube = cube;
         self.base = self.cube.clone();
         self.cursor = 0;
         self.playing = false;
         self.running = None;
+        self.phase_split = None;
+        dom::set_html("solution", "");
         self.render();
     }
 
@@ -590,6 +677,20 @@ impl App {
         parts.push("embed=1".to_string());
         parts.join("&")
     }
+}
+
+/// One phase of a solution, written out.
+fn phase_row(label: &str, moves: &[cube_core::Move], what: &str) -> String {
+    let text = if moves.is_empty() {
+        "nothing to do".to_string()
+    } else {
+        html_escape(&notation::format(moves))
+    };
+    format!(
+        "<div class=\"perm-row\"><dt>{label}</dt><dd><code>{text}</code>\
+         <span class=\"perm-stat\">{} moves \u{b7} {what}</span></dd></div>",
+        moves.len()
+    )
 }
 
 fn encode(s: &str) -> String {

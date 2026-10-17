@@ -63,6 +63,18 @@ pub fn request_frame(f: &Closure<dyn FnMut(f64)>) {
         .expect("the frame is scheduled");
 }
 
+/// Milliseconds since the page loaded.
+pub fn now() -> f64 {
+    window().performance().map(|p| p.now()).unwrap_or_default()
+}
+
+/// Run `f` after the browser has had a chance to paint.
+pub fn defer(ms: i32, f: impl FnOnce() + 'static) {
+    let closure = Closure::once_into_js(f);
+    let _ =
+        window().set_timeout_with_callback_and_timeout_and_arguments_0(closure.unchecked_ref(), ms);
+}
+
 /// Offer `data` to the browser as a file download.
 pub fn download(name: &str, mime: &str, data: &str) {
     let parts = js_sys::Array::of1(&JsValue::from_str(data));

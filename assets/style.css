@@ -180,6 +180,9 @@ button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4
 .status { margin: 0; color: var(--soft); font-size: .88rem; min-height: 1.4em; }
 .status.error { color: #d1365a; }
 
+.solution { margin: 0; display: grid; gap: .4rem; }
+.solution:empty { display: none; }
+
 .transport { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
 .transport .speed { margin-left: auto; color: var(--soft); font-size: .85rem; }
 
@@ -203,6 +206,8 @@ button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4
 }
 .chips li.done { color: var(--ink); border-color: var(--soft); }
 .chips li.current { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+/* where phase 1 hands over to phase 2 */
+.chips li.phase2 { box-shadow: -3px 0 0 var(--accent); margin-left: .35rem; }
 
 .actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
 .actions .spacer { flex: 1; }

@@ -17,10 +17,7 @@ type Shared = Rc<RefCell<App>>;
 type FrameLoop = Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>>;
 
 fn now() -> f64 {
-    dom::window()
-        .performance()
-        .map(|p| p.now())
-        .unwrap_or_default()
+    dom::now()
 }
 
 fn main() {
@@ -208,6 +205,22 @@ fn wire(shared: &Shared) {
 
     let app = shared.clone();
     dom::on_id::<MouseEvent, _>("solved", "click", move |_| app.borrow_mut().set_solved());
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("solve", "click", move |_| {
+        // Building the tables blocks, so let the message paint first.
+        let waiting = app.borrow().solver_ready();
+        app.borrow().say(
+            if waiting {
+                "Solving..."
+            } else {
+                "Building the solver tables, a moment, once..."
+            },
+            false,
+        );
+        let app = app.clone();
+        dom::defer(20, move || app.borrow_mut().solve());
+    });
 
     let app = shared.clone();
     dom::on_id::<web_sys::Event, _>("size", "change", move |_| {

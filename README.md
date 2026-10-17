@@ -10,8 +10,10 @@ A Rubik's cube representation.
   until you say so. Play it, step a move at a time, jump to any move by
   clicking it, or apply the rest at once. Turns are animated: the layer really
   rotates, and the cut it opens shows the dark body underneath.
-- **Scramble / solved.** One button for a random state, one for the solved
-  cube, and a third that the solver will fill in later.
+- **Scramble / solved / solve.** One button for a random state, one for the
+  solved cube, and one that solves it: Kociemba's two-phase algorithm, in about
+  20 moves and a few milliseconds. The answer loads as the maneuver, so you can
+  play or step through it, and both phases are written out underneath.
 - **Facelet numbers** on the net, on by default, in the SageMath numbering the
   notebooks use (1..48, U L F R B D, centers skipped). `?numbers=0` or the
   checkbox turns them off.
