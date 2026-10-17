@@ -1,0 +1,19 @@
+[package]
+name = "cube-py"
+version = "0.1.0"
+description = "Python bindings for the cube renderer"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/twaclaw/cube"
+
+[lib]
+name = "magiccube"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+lto = true
+
+[dependencies]
+cube-core = { path = "../cube-core" }
+pyo3 = { version = "0.30.1", features = ["extension-module", "abi3-py39"] }

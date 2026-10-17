@@ -4,9 +4,9 @@ use cube_core::export;
 use cube_core::geom::{Axis, Face, facelet_at, facelet_index, facelet_label, facelet_position};
 use cube_core::moves::Turn;
 use cube_core::palette::STANDARD;
-use cube_core::render::Highlights;
 use cube_core::render::cube3d::{self, Anim, CAMERA_PRESETS, Camera, Paint, Style3d};
 use cube_core::render::net::{self, NetStyle};
+use cube_core::render::{Highlights, Marks};
 use cube_core::scramble::{Rng, scramble};
 use cube_core::{Cube, Permutation, notation};
 use proptest::prelude::*;
@@ -163,7 +163,7 @@ proptest! {
         let cam = Camera { yaw, pitch, zoom };
         let st = Style3d::default();
         let anim = Anim { turn: Turn::face(n, Face::U, 1), angle };
-        let facets = cube3d::facets(&cube, &cam, Some(&anim), &st, &STANDARD, &Highlights::new());
+        let facets = cube3d::facets(&cube, &cam, Some(&anim), &st, &STANDARD, &Marks::new());
         prop_assert!(!facets.is_empty());
         for f in &facets {
             for p in f.pts {
@@ -180,7 +180,7 @@ proptest! {
         let cube = scrambled(n, seed, 11);
         let cam = Camera { yaw, pitch, zoom: 1.0 };
         let facets = cube3d::facets(&cube, &cam, None, &Style3d::default(), &STANDARD,
-                                    &Highlights::new());
+                                    &Marks::new());
         let stickers: Vec<_> = facets.iter()
             .filter(|f| f.paint == Paint::Sticker)
             .filter_map(|f| f.facelet)
@@ -195,7 +195,7 @@ proptest! {
         let cube = scrambled(n, seed, 11);
         let cam = Camera::default();
         let facets = cube3d::facets(&cube, &cam, None, &Style3d::default(), &STANDARD,
-                                    &Highlights::new());
+                                    &Marks::new());
         let stickers = facets.iter().filter(|f| f.paint == Paint::Sticker).count();
         prop_assert_eq!(stickers, 3 * n as usize * n as usize);
     }
@@ -204,7 +204,7 @@ proptest! {
     fn the_net_draws_every_facelet(n in sizes(), seed: u64, numbers: bool) {
         let cube = scrambled(n, seed, 5);
         let st = NetStyle { numbers, ..NetStyle::default() };
-        let svg = net::markup(&cube, &st, &STANDARD, &Highlights::new());
+        let svg = net::markup(&cube, &st, &STANDARD, &Marks::new());
         prop_assert_eq!(svg.matches("data-facelet").count(), 6 * n as usize * n as usize);
     }
 
@@ -215,7 +215,7 @@ proptest! {
         for (i, face) in Face::ALL.into_iter().cycle().take(count).enumerate() {
             highlights.insert((face, (i % 3) as u8, (i / 3 % 3) as u8));
         }
-        let svg = net::markup(&cube, &NetStyle::default(), &STANDARD, &highlights);
+        let svg = net::markup(&cube, &NetStyle::default(), &STANDARD, &Marks::rings(&highlights, STANDARD.highlight));
         prop_assert_eq!(svg.matches("stroke-width=\"3.74\"").count(), highlights.len());
     }
 
@@ -224,7 +224,7 @@ proptest! {
         let cube = scrambled(n, seed, 4);
         let moves = scramble(n, len, &mut Rng::new(seed ^ 1));
         let (cam, st) = (Camera::default(), Style3d::default());
-        let tl = export::timeline(&cube, &moves, &cam, &st, &STANDARD, &Highlights::new(),
+        let tl = export::timeline(&cube, &moves, &cam, &st, &STANDARD, &Marks::new(),
                                   steps, 420.0);
         prop_assert_eq!(tl.frames.len(), 1 + len * steps);
         let svg = export::animated_svg(&tl, None);
@@ -232,7 +232,7 @@ proptest! {
         prop_assert_eq!(svg.matches("<animate ").count(), tl.frames.len());
         let html = export::player_html(&tl, "test", "R U");
         prop_assert!(html.contains("<svg id=\"view\""));
-        let strip = export::strip_svg(&cube, &moves, &cam, &st, &STANDARD, &Highlights::new(),
+        let strip = export::strip_svg(&cube, &moves, &cam, &st, &STANDARD, &Marks::new(),
                                       4, Some("#fff"));
         prop_assert!(strip.starts_with("<svg") && strip.ends_with("</svg>"));
     }
@@ -285,13 +285,74 @@ proptest! {
         let moves = scramble(n, 3, &mut Rng::new(seed));
         let cube = Cube::solved(n);
         let (cam, st) = (Camera::default(), Style3d::default());
-        let tl = export::timeline(&cube, &moves, &cam, &st, &STANDARD, &Highlights::new(),
+        let tl = export::timeline(&cube, &moves, &cam, &st, &STANDARD, &Marks::new(),
                                   5, 400.0);
         let mut moved = cube.clone();
         moved.apply_moves(&moves);
-        let still = cube3d::inner(&moved, &cam, None, &st, &STANDARD, &Highlights::new());
+        let still = cube3d::inner(&moved, &cam, None, &st, &STANDARD, &Marks::new());
         // A full quarter turn lands the layer exactly, so the picture is the
         // moved state: same quads, same colors, only the facelet names differ.
         prop_assert_eq!(fills(&tl.frames.last().unwrap().markup), fills(&still));
     }
+}
+
+#[test]
+fn phase_two_cannot_move_the_slice_edges_out_of_the_slice() {
+    use cube_core::pieces::{self, Kind};
+    let generators: Vec<Vec<cube_core::Move>> = ["U", "D", "R2", "L2", "F2", "B2"]
+        .iter()
+        .map(|word| notation::parse(3, word).unwrap())
+        .collect();
+    let orbits = pieces::orbits(3, &generators);
+
+    // The four slice edges can only reach each other: that is what lets phase
+    // 2 finish without ever leaving the subgroup.
+    let slice: Vec<String> = orbits
+        .iter()
+        .find(|group| group.len() == 4 && group.iter().all(|s| pieces::kind(3, *s) == Kind::Edge))
+        .expect("the slice edges form an orbit")
+        .iter()
+        .map(|s| pieces::name(3, *s))
+        .collect();
+    let mut sorted = slice.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["BL", "BR", "FL", "FR"]);
+    // and they are named the way everyone writes them
+
+    // Centres never move at all, so each is its own orbit.
+    let singles = orbits.iter().filter(|group| group.len() == 1).count();
+    assert_eq!(singles, 6);
+}
+
+#[test]
+fn a_maneuver_leaves_some_cubies_alone() {
+    use cube_core::pieces;
+    let moves = notation::parse(3, "R U R' U'").unwrap();
+    let fixed: Vec<String> = pieces::fixed(3, &moves)
+        .into_iter()
+        .map(|s| pieces::name(3, s))
+        .collect();
+    // The sexy move keeps the whole D layer and the left slice still.
+    assert!(fixed.contains(&"DLF".to_string()));
+    assert!(fixed.contains(&"L".to_string()));
+    assert_eq!(
+        pieces::fixed(3, &moves).len() + pieces::disturbed(3, &moves).len(),
+        pieces::slots(3).len()
+    );
+}
+
+#[test]
+fn cubies_are_named_and_found_again() {
+    use cube_core::pieces::{self, Kind};
+    assert_eq!(pieces::slots(3).len(), 26);
+    assert_eq!(pieces::of_kind(3, Kind::Corner).len(), 8);
+    assert_eq!(pieces::of_kind(3, Kind::Edge).len(), 12);
+    assert_eq!(pieces::of_kind(3, Kind::Center).len(), 6);
+    for slot in pieces::slots(3) {
+        let name = pieces::name(3, slot);
+        assert_eq!(pieces::named(3, &name), Some(slot), "{name}");
+    }
+    // Letters in any order find the same cubie.
+    assert_eq!(pieces::named(3, "RFU"), pieces::named(3, "UFR"));
+    assert_eq!(pieces::slots(5).len(), 5 * 5 * 5 - 3 * 3 * 3);
 }

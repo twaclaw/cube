@@ -7,7 +7,7 @@
 ///
 /// Facelet centers live on the doubled, centered lattice: cell index `i` of an
 /// `n`-cube sits at `2*i - (n - 1)`, which keeps every quarter turn integral.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Default)]
 pub struct V3 {
     pub x: i32,
     pub y: i32,
@@ -25,6 +25,14 @@ impl V3 {
 
     pub const fn scale(self, k: i32) -> Self {
         Self::new(self.x * k, self.y * k, self.z * k)
+    }
+
+    pub const fn cross(self, o: V3) -> Self {
+        Self::new(
+            self.y * o.z - self.z * o.y,
+            self.z * o.x - self.x * o.z,
+            self.x * o.y - self.y * o.x,
+        )
     }
 
     pub const fn add(self, o: V3) -> Self {

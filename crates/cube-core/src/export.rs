@@ -8,7 +8,7 @@ use crate::cube::Cube;
 use crate::moves::Move;
 use crate::palette::Palette;
 use crate::render::svg::{num, open};
-use crate::render::{Camera, Highlights, Style3d, cube3d, cube3d::Anim};
+use crate::render::{Camera, Marks, Style3d, cube3d, cube3d::Anim};
 
 /// One drawn moment of a sequence.
 pub struct Frame {
@@ -16,6 +16,9 @@ pub struct Frame {
     pub markup: String,
     pub label: String,
     pub ms: f64,
+    /// A move has landed here: the cube is between turns, not mid turn. The
+    /// player steps from one of these to the next.
+    pub is_state: bool,
 }
 
 /// A whole sequence, drawn.
@@ -49,16 +52,17 @@ pub fn timeline(
     cam: &Camera,
     st: &Style3d,
     pal: &Palette,
-    highlights: &Highlights,
+    marks: &Marks,
     steps: usize,
     ms_per_move: f64,
 ) -> Timeline {
     let steps = steps.max(1);
     let mut state = cube.clone();
     let mut frames = vec![Frame {
-        markup: cube3d::inner(&state, cam, None, st, pal, highlights),
+        markup: cube3d::inner(&state, cam, None, st, pal, marks),
         label: "start".to_string(),
         ms: ms_per_move.max(1.0),
+        is_state: true,
     }];
     for m in moves {
         let total = m.turn.angle();
@@ -70,16 +74,18 @@ pub fn timeline(
                 angle: total * ease(s as f64 / steps as f64),
             };
             frames.push(Frame {
-                markup: cube3d::inner(&state, cam, Some(&anim), st, pal, highlights),
+                markup: cube3d::inner(&state, cam, Some(&anim), st, pal, marks),
                 label: m.name.clone(),
                 ms: ms_per_move / steps as f64,
+                is_state: false,
             });
         }
         state.apply(&m.turn);
         frames.push(Frame {
-            markup: cube3d::inner(&state, cam, None, st, pal, highlights),
+            markup: cube3d::inner(&state, cam, None, st, pal, marks),
             label: m.name.clone(),
             ms: ms_per_move / steps as f64,
+            is_state: true,
         });
     }
     if let Some(last) = frames.last_mut() {
@@ -149,6 +155,14 @@ pub fn player_html(tl: &Timeline, title: &str, sequence: &str) -> String {
         .iter()
         .map(|f| format!("\"{}\"", escape_js(&f.label)))
         .collect();
+    // Frames where a move has landed: what the arrows step between.
+    let states: Vec<String> = tl
+        .frames
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.is_state)
+        .map(|(i, _)| i.to_string())
+        .collect();
     format!(
         r##"<!doctype html>
 <meta charset="utf-8">
@@ -181,15 +195,29 @@ input[type=range] {{ accent-color: #2a78d6; }}
   <figcaption>{sequence}</figcaption>
 </figure>
 <script>
-const F = [{frames}], L = [{labels}];
+const F = [{frames}], L = [{labels}], S = [{states}];
 const view = document.getElementById('view'), scrub = document.getElementById('scrub'),
       label = document.getElementById('label'), play = document.getElementById('play');
 let i = 0, timer = null;
+function moveNumber(k) {{
+  let done = 0;
+  for (const s of S) if (s <= k) done++;
+  return done - 1;
+}}
 function show(k) {{
   i = (k + F.length) % F.length;
   view.innerHTML = F[i][0];
   scrub.value = i;
-  label.textContent = L[i] + '  ' + i + '/' + {last};
+  label.textContent = L[i] + '  ' + Math.max(moveNumber(i), 0) + '/' + (S.length - 1);
+}}
+// The arrows jump a whole move; the slider still scrubs frame by frame.
+function step(dir) {{
+  if (dir > 0) {{
+    for (const s of S) if (s > i) return show(s);
+    return show(S[0]);
+  }}
+  for (let j = S.length - 1; j >= 0; j--) if (S[j] < i) return show(S[j]);
+  return show(S[S.length - 1]);
 }}
 function stop() {{ clearTimeout(timer); timer = null; play.innerHTML = '&#9654; play'; }}
 function tick() {{
@@ -203,8 +231,8 @@ play.onclick = () => {{
   play.innerHTML = '&#10073;&#10073; pause';
   timer = setTimeout(tick, F[i][1]);
 }};
-document.getElementById('prev').onclick = () => {{ stop(); show(i - 1); }};
-document.getElementById('next').onclick = () => {{ stop(); show(i + 1); }};
+document.getElementById('prev').onclick = () => {{ stop(); step(-1); }};
+document.getElementById('next').onclick = () => {{ stop(); step(1); }};
 scrub.oninput = () => {{ stop(); show(+scrub.value); }};
 show(0);
 </script>
@@ -215,6 +243,7 @@ show(0);
         last = tl.frames.len().saturating_sub(1),
         frames = frames.join(","),
         labels = labels.join(","),
+        states = states.join(","),
     )
 }
 
@@ -232,7 +261,7 @@ pub fn strip_svg(
     cam: &Camera,
     st: &Style3d,
     pal: &Palette,
-    highlights: &Highlights,
+    marks: &Marks,
     columns: usize,
     background: Option<&str>,
 ) -> String {
@@ -264,7 +293,7 @@ pub fn strip_svg(
              font-family=\"ui-sans-serif,system-ui,sans-serif\" font-size=\"{}\" fill=\"{}\">{}</text></g>",
             num(x),
             num(y),
-            cube3d::inner(&state, cam, None, st, pal, highlights),
+            cube3d::inner(&state, cam, None, st, pal, marks),
             num(st.size * 0.5),
             num(st.size + caption * 0.72),
             num(caption * 0.62),

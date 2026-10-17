@@ -6,9 +6,9 @@ use cube_core::geom::{Face, facelet_from_label, facelet_label};
 use cube_core::moves::Move;
 use cube_core::notation;
 use cube_core::palette::{Palette, STANDARD};
-use cube_core::render::Highlights;
 use cube_core::render::cube3d::{self, Anim, CAMERA_PRESETS, Camera, Style3d};
 use cube_core::render::net::{self, NetStyle};
+use cube_core::render::{Highlights, Marks};
 use cube_core::scramble::{Rng, scramble};
 use cube_core::solver::search::Limits;
 use cube_core::solver::{Kociemba, SolveError};
@@ -97,6 +97,11 @@ impl App {
         self.render_permutation();
     }
 
+    /// The highlight set, as something the renderers can draw.
+    fn marks(&self) -> Marks {
+        Marks::rings(&self.highlights, self.palette.highlight)
+    }
+
     pub fn render_3d(&self, anim: Option<Anim>) {
         dom::set_html(
             "view-3d",
@@ -106,7 +111,7 @@ impl App {
                 anim.as_ref(),
                 &self.style,
                 &self.palette,
-                &self.highlights,
+                &self.marks(),
             ),
         );
     }
@@ -119,7 +124,7 @@ impl App {
             &self.cube,
             &self.net,
             &self.palette,
-            &self.highlights,
+            &self.marks(),
         ));
     }
 
@@ -587,13 +592,13 @@ impl App {
                     None,
                     &st,
                     &self.palette,
-                    &self.highlights,
+                    &self.marks(),
                     bg,
                 );
                 self.offer("cube-3d.svg", "image/svg+xml", &svg);
             }
             "svgnet" => {
-                let svg = net::document(&self.cube, &self.net, &self.palette, &self.highlights, bg);
+                let svg = net::document(&self.cube, &self.net, &self.palette, &self.marks(), bg);
                 self.offer("cube-net.svg", "image/svg+xml", &svg);
             }
             "strip" => {
@@ -603,7 +608,7 @@ impl App {
                     &self.cam,
                     &st,
                     &self.palette,
-                    &self.highlights,
+                    &self.marks(),
                     6,
                     bg,
                 );
@@ -635,7 +640,7 @@ impl App {
             &self.cam,
             st,
             &self.palette,
-            &self.highlights,
+            &self.marks(),
             self.export_steps,
             self.speed_ms,
         )

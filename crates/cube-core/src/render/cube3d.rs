@@ -3,7 +3,7 @@
 //! Vector output keeps the drawing crisp at any size and makes the on screen
 //! view and the exported file the same thing.
 
-use super::Highlights;
+use super::Marks;
 use super::svg::{P2, num, open, rounded_path};
 use crate::cube::Cube;
 use crate::geom::{Axis, Face, V3, facelet_at, layer_index};
@@ -156,7 +156,7 @@ pub fn facets(
     anim: Option<&Anim>,
     st: &Style3d,
     pal: &Palette,
-    highlights: &Highlights,
+    marks: &Marks,
 ) -> Vec<Facet> {
     let n = cube.n();
     let nf = n as f64;
@@ -257,9 +257,12 @@ pub fn facets(
                             .map(|&(sr, sd)| view(turn(corner(sr, sd, st.sticker)), cam))
                             .collect();
                     let pts = quad(&sticker);
-                    let color = pal
-                        .face(cube.get(facelet.0, facelet.1, facelet.2))
-                        .shade(1.0 - st.shade * (1.0 - lambert));
+                    let own = marks
+                        .fill
+                        .get(&facelet)
+                        .copied()
+                        .unwrap_or_else(|| pal.face(cube.get(facelet.0, facelet.1, facelet.2)));
+                    let color = own.shade(1.0 - st.shade * (1.0 - lambert));
                     let radius = st.round * edge_length(&pts);
                     out.push(Facet {
                         pts,
@@ -270,10 +273,10 @@ pub fn facets(
                         behind: false,
                         facelet: Some(facelet),
                     });
-                    if highlights.contains(&facelet) {
+                    if let Some(ring) = marks.ring.get(&facelet) {
                         out.push(Facet {
                             pts,
-                            color: pal.highlight,
+                            color: *ring,
                             paint: Paint::Ring,
                             depth,
                             radius,
@@ -450,9 +453,9 @@ pub fn inner(
     anim: Option<&Anim>,
     st: &Style3d,
     pal: &Palette,
-    highlights: &Highlights,
+    marks: &Marks,
 ) -> String {
-    markup(&facets(cube, cam, anim, st, pal, highlights), st, pal)
+    markup(&facets(cube, cam, anim, st, pal, marks), st, pal)
 }
 
 /// A standalone SVG document.
@@ -462,11 +465,11 @@ pub fn document(
     anim: Option<&Anim>,
     st: &Style3d,
     pal: &Palette,
-    highlights: &Highlights,
+    marks: &Marks,
     background: Option<&str>,
 ) -> String {
     let mut s = open(st.size, st.size, background);
-    s.push_str(&inner(cube, cam, anim, st, pal, highlights));
+    s.push_str(&inner(cube, cam, anim, st, pal, marks));
     s.push_str("</svg>");
     s
 }

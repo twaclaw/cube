@@ -12,8 +12,12 @@ PREVIEW_PORT ?= 8089
 # 0.0.0.0 to reach the preview from a phone on the same network.
 ADDRESS      ?= 127.0.0.1
 FIGURES      ?= figures
+VENV         ?= .venv
+NOTEBOOK     ?= notebooks/cube.py
+NB_PORT      ?= 2718
+APP_PORT     ?= 2719
 
-.PHONY: help dev preview build test lint fmt update figures vectors clean
+.PHONY: help dev preview build test lint fmt update figures vectors python notebook app page post clean
 
 help: ## Show this help
 	@printf "$(BOLD)cube$(RESET) -- a Rubik's cube in 3D and as a net, drawn in SVG\n"
@@ -48,6 +52,30 @@ fmt: ## Format everything
 update: ## Update dependencies to their latest compatible versions
 	cargo update
 
+# ── Python and notebooks ─────────────────────────────────────────────────
+$(VENV):
+	uv venv $(VENV)
+	uv pip install --python $(VENV)/bin/python maturin marimo
+
+python: $(VENV) ## Build the magiccube Python module into .venv
+	VIRTUAL_ENV=$(abspath $(VENV)) $(VENV)/bin/maturin develop --release \
+	    --manifest-path crates/cube-py/Cargo.toml
+
+notebook: python ## Serve the notebook for editing (code and outputs)
+	$(VENV)/bin/marimo edit $(NOTEBOOK) --port $(NB_PORT)
+
+app: python ## Serve the notebook as a read-only app (outputs only)
+	$(VENV)/bin/marimo run $(NOTEBOOK) --port $(APP_PORT)
+
+page: python ## Run the notebook into one self-contained HTML file
+	$(VENV)/bin/marimo export html $(NOTEBOOK) -o $(basename $(NOTEBOOK)).html
+	@echo "wrote $(basename $(NOTEBOOK)).html"
+
+post: python ## Run the notebook, then export it as markdown
+	$(VENV)/bin/python $(NOTEBOOK)
+	$(VENV)/bin/marimo export md $(NOTEBOOK) -o $(basename $(NOTEBOOK)).md
+	@echo "wrote $(basename $(NOTEBOOK)).md"
+
 # ── Export ───────────────────────────────────────────────────────────────
 figures: ## Write sample figures with the command line exporter
 	@mkdir -p $(FIGURES)
@@ -70,4 +98,4 @@ vectors: ## Regenerate the SageMath ground truth (needs sage on PATH)
 # ── Housekeeping ─────────────────────────────────────────────────────────
 clean: ## Remove build output
 	cargo clean
-	rm -rf dist $(FIGURES)
+	rm -rf dist $(FIGURES) $(VENV) crates/cube-py/target

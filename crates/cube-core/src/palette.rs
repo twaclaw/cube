@@ -57,6 +57,14 @@ impl Palette {
     }
 }
 
+/// Every face the same pale color: a cube to mark up rather than to solve.
+pub const BLANK: Palette = Palette {
+    faces: [Rgb::from_hex(0xf2f2f5); 6],
+    plastic: Rgb::from_hex(0x1a1a1f),
+    edge: Rgb::from_hex(0x101014),
+    highlight: Rgb::from_hex(0xd10a6e),
+};
+
 pub const STANDARD: Palette = Palette {
     faces: [
         Rgb::from_hex(0xfdfdfd), // U white

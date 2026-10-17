@@ -8,7 +8,7 @@
 //! Facelets can carry their Singmaster number and a highlight ring, the way the
 //! notebooks ring the facelets that break an invariant.
 
-use super::Highlights;
+use super::Marks;
 use super::svg::{P2, num, open, rounded_path};
 use crate::cube::Cube;
 use crate::geom::{Face, facelet_label};
@@ -80,7 +80,7 @@ fn cell_corners(x: f64, y: f64, side: f64) -> [P2; 4] {
 }
 
 /// SVG markup for the net, without the enclosing `<svg>` element.
-pub fn markup(cube: &Cube, st: &NetStyle, pal: &Palette, highlights: &Highlights) -> String {
+pub fn markup(cube: &Cube, st: &NetStyle, pal: &Palette, marks: &Marks) -> String {
     let n = cube.n();
     let inset = st.gap * st.cell * 0.5;
     let side = st.cell - 2.0 * inset;
@@ -110,16 +110,22 @@ pub fn markup(cube: &Cube, st: &NetStyle, pal: &Palette, highlights: &Highlights
                 let y = oy + row as f64 * st.cell + inset;
                 let pts = cell_corners(x, y, side);
                 let d = rounded_path(&pts, st.round * side);
-                let color = pal.face(cube.get(face, row, col));
+                let color = marks
+                    .fill
+                    .get(&(face, row, col))
+                    .copied()
+                    .unwrap_or_else(|| pal.face(cube.get(face, row, col)));
                 stickers.push_str(&format!(
                     "<path d=\"{d}\" fill=\"{}\" data-facelet=\"{}-{row}-{col}\"/>",
                     color.hex(),
                     face.letter()
                 ));
-                if st.numbers {
-                    let text = match facelet_label(n, face, row, col) {
-                        Some(k) => k.to_string(),
-                        None => face.letter().to_string(),
+                let written = marks.label.get(&(face, row, col));
+                if st.numbers || written.is_some() {
+                    let text = match (written, facelet_label(n, face, row, col)) {
+                        (Some(text), _) => text.clone(),
+                        (None, Some(k)) => k.to_string(),
+                        (None, None) => face.letter().to_string(),
                     };
                     let ink = if color.luma() > 0.55 {
                         "#1a1a1f"
@@ -133,10 +139,10 @@ pub fn markup(cube: &Cube, st: &NetStyle, pal: &Palette, highlights: &Highlights
                         num(side * 0.42)
                     ));
                 }
-                if highlights.contains(&(face, row, col)) {
+                if let Some(ring) = marks.ring.get(&(face, row, col)) {
                     rings.push_str(&format!(
                         "<path d=\"{d}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\"/>",
-                        pal.highlight.hex(),
+                        ring.hex(),
                         num(st.cell * 0.11)
                     ));
                 }
@@ -165,12 +171,12 @@ pub fn document(
     cube: &Cube,
     st: &NetStyle,
     pal: &Palette,
-    highlights: &Highlights,
+    marks: &Marks,
     background: Option<&str>,
 ) -> String {
     let (w, h) = st.extent(cube.n());
     let mut s = open(w, h, background);
-    s.push_str(&markup(cube, st, pal, highlights));
+    s.push_str(&markup(cube, st, pal, marks));
     s.push_str("</svg>");
     s
 }

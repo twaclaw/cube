@@ -3,9 +3,9 @@
 use cube_core::export;
 use cube_core::geom::facelet_from_label;
 use cube_core::palette::STANDARD;
-use cube_core::render::Highlights;
 use cube_core::render::cube3d::{CAMERA_PRESETS, Camera, Style3d};
 use cube_core::render::net::NetStyle;
+use cube_core::render::{Highlights, Marks};
 use cube_core::scramble::{Rng, scramble};
 use cube_core::{Cube, notation};
 use std::process::ExitCode;
@@ -143,6 +143,7 @@ fn run() -> Result<(), String> {
     let moves = notation::parse(a.n, &a.seq).map_err(|e| e.to_string())?;
 
     let highlights = parse_highlights(a.n, &a.highlight)?;
+    let marks = Marks::rings(&highlights, STANDARD.highlight);
     let st = Style3d {
         size: a.size,
         shade: if a.flat {
@@ -164,47 +165,33 @@ fn run() -> Result<(), String> {
         "still" => {
             let mut state = cube.clone();
             state.apply_moves(&moves);
-            cube_core::render::cube3d::document(&state, &cam, None, &st, &STANDARD, &highlights, bg)
+            cube_core::render::cube3d::document(&state, &cam, None, &st, &STANDARD, &marks, bg)
+        }
+        "cycles" => {
+            let mut state = cube.clone();
+            state.apply_moves(&moves);
+            let perm = cube_core::Permutation::of(&state)
+                .ok_or("a cube this size does not name one permutation")?;
+            cube_core::render::cycles::document(
+                &perm,
+                a.n,
+                &STANDARD,
+                &cube_core::render::CycleStyle::default(),
+                bg,
+            )
         }
         "net" => {
             let mut state = cube.clone();
             state.apply_moves(&moves);
-            cube_core::render::net::document(&state, &net, &STANDARD, &highlights, bg)
+            cube_core::render::net::document(&state, &net, &STANDARD, &marks, bg)
         }
-        "strip" => export::strip_svg(
-            &cube,
-            &moves,
-            &cam,
-            &st,
-            &STANDARD,
-            &highlights,
-            a.columns,
-            bg,
-        ),
+        "strip" => export::strip_svg(&cube, &moves, &cam, &st, &STANDARD, &marks, a.columns, bg),
         "anim" => {
-            let tl = export::timeline(
-                &cube,
-                &moves,
-                &cam,
-                &st,
-                &STANDARD,
-                &highlights,
-                a.steps,
-                a.ms,
-            );
+            let tl = export::timeline(&cube, &moves, &cam, &st, &STANDARD, &marks, a.steps, a.ms);
             export::animated_svg(&tl, bg)
         }
         "player" => {
-            let tl = export::timeline(
-                &cube,
-                &moves,
-                &cam,
-                &st,
-                &STANDARD,
-                &highlights,
-                a.steps,
-                a.ms,
-            );
+            let tl = export::timeline(&cube, &moves, &cam, &st, &STANDARD, &marks, a.steps, a.ms);
             export::player_html(&tl, "Rubik's cube", &notation::format(&moves))
         }
         other => return Err(format!("unknown mode {other}")),
