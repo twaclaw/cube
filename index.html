@@ -12,7 +12,7 @@
 <body>
 <header class="page-head">
   <h1>Rubik's cube</h1>
-  <p>Two views of one state: a cube you can turn, and the net it unfolds to.</p>
+  <p>Enter a move and press load.</p>
 </header>
 
 <main>
@@ -44,6 +44,13 @@
         <button type="button" id="highlight-clear" class="ghost">clear</button>
         <span class="hint">click a facelet</span>
       </figcaption>
+    </figure>
+    <figure class="view perm" id="fig-perm">
+      <figcaption class="perm-head">
+        as a permutation
+        <span class="hint">each cycle says where facelets go, numbered as in the net</span>
+      </figcaption>
+      <dl id="perm-body"></dl>
     </figure>
   </section>
 

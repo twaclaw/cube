@@ -47,8 +47,12 @@ main { width: min(1180px, 100%); display: grid; gap: 1.25rem; }
 .views {
   display: grid;
   gap: 1.25rem;
-  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  grid-template-columns: 1fr;
   align-items: start;
+}
+
+@media (min-width: 780px) {
+  .views { grid-template-columns: 1fr 1fr; }
 }
 
 .view {
@@ -119,6 +123,41 @@ button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4rem; }
+
+/* the permutation panel runs the width of both views */
+.perm { grid-column: 1 / -1; gap: .5rem; }
+.perm-head { border-top: none; border-bottom: 1px solid var(--line); padding: 0 0 .5rem; }
+.perm-head .hint { font-style: italic; }
+.perm dl { margin: 0; display: grid; gap: .5rem; }
+.perm-row { display: grid; grid-template-columns: 5.5rem 1fr; gap: .2rem .75rem; align-items: baseline; }
+.perm-row dt { color: var(--soft); font-size: .85rem; white-space: nowrap; }
+.perm-row dd { margin: 0; min-width: 0; }
+.perm-row code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .85rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.perm-row .cycle { display: inline-block; margin-right: .4rem; white-space: nowrap; color: var(--soft); }
+.facelet {
+  display: inline-block;
+  min-width: 1.9em;
+  margin: .12em .05em;
+  padding: .05em .25em;
+  border: 1px solid rgba(16, 16, 20, .45);
+  border-radius: .32em;
+  font-size: .78rem;
+  line-height: 1.35;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+#perm-body .facelet { cursor: pointer; }
+#perm-body .facelet:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.perm-stat { display: block; color: var(--soft); font-size: .8rem; }
+.perm-note { margin: 0; color: var(--soft); font-size: .85rem; }
+@media (max-width: 560px) {
+  .perm-row { grid-template-columns: 1fr; }
+}
 
 .console {
   background: var(--panel);
@@ -209,10 +248,45 @@ button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4
 
 /* ?embed=1 strips the page down to the views; ?controls=1 puts them back. */
 body.embed { padding: .5rem; gap: .5rem; }
-body.embed .page-head, body.embed .console,
+body.embed .page-head, body.embed .console, body.embed .perm,
 body.embed figcaption { display: none; }
 body.embed .view { box-shadow: none; }
-body.embed.with-controls .console { display: grid; }
+body.embed.with-controls /* the permutation panel runs the width of both views */
+.perm { grid-column: 1 / -1; gap: .5rem; }
+.perm-head { border-top: none; border-bottom: 1px solid var(--line); padding: 0 0 .5rem; }
+.perm-head .hint { font-style: italic; }
+.perm dl { margin: 0; display: grid; gap: .5rem; }
+.perm-row { display: grid; grid-template-columns: 5.5rem 1fr; gap: .2rem .75rem; align-items: baseline; }
+.perm-row dt { color: var(--soft); font-size: .85rem; white-space: nowrap; }
+.perm-row dd { margin: 0; min-width: 0; }
+.perm-row code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .85rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.perm-row .cycle { display: inline-block; margin-right: .4rem; white-space: nowrap; color: var(--soft); }
+.facelet {
+  display: inline-block;
+  min-width: 1.9em;
+  margin: .12em .05em;
+  padding: .05em .25em;
+  border: 1px solid rgba(16, 16, 20, .45);
+  border-radius: .32em;
+  font-size: .78rem;
+  line-height: 1.35;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+#perm-body .facelet { cursor: pointer; }
+#perm-body .facelet:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.perm-stat { display: block; color: var(--soft); font-size: .8rem; }
+.perm-note { margin: 0; color: var(--soft); font-size: .85rem; }
+@media (max-width: 560px) {
+  .perm-row { grid-template-columns: 1fr; }
+}
+
+.console { display: grid; }
 body.embed.with-controls figcaption { display: flex; }
 body.hide-net .views, body.hide-3d .views { grid-template-columns: 1fr; }
 body.hide-net #fig-net, body.hide-3d #fig-3d { display: none; }

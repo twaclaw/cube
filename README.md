@@ -1,11 +1,6 @@
 # cube
 
-A Rubik's cube drawn twice, side by side: a 3D cube you can turn with the
-mouse, and the flat net it unfolds to. Both views are **SVG**, produced by the
-same Rust renderer, so what you see is exactly what you export.
-
-Built with [Trunk](https://trunkrs.dev) into a static bundle of about 190 KB
-(~85 KB over the wire), which is all GitHub Pages has to serve.
+A Rubik's cube representation.
 
 ## What it does
 
@@ -26,15 +21,6 @@ Built with [Trunk](https://trunkrs.dev) into a static bundle of about 190 KB
 - **Exports** for a blog, all from the same renderer (see below).
 - **Any cube size.** The model and both renderers are written for n×n×n; the
   size selector goes from 2 to 7. Only the future solver is 3x3 only.
-
-### Why none of this comes from a crate
-
-There is no Rust crate that draws a cube for the web: `cubesim` is a solver and
-simulator with no renderer and no release since 2021, and `kiss3d` would pull a
-whole WebGL engine in to draw 54 squares. SVG keeps the bundle small, prints
-and scales perfectly, and makes the export and the screen literally the same
-code. The parts worth reusing are the conventions, and those are taken from
-SageMath and from geometer.org, not reimplemented by guesswork.
 
 ## Notation
 
@@ -85,17 +71,11 @@ in an embed.
 ## Running it
 
 ```sh
-make dev                          # live reload, http://127.0.0.1:8088
-make preview PUBLIC_URL=/cube/    # the release build, served from that path
-make test                         # unit, property and SageMath comparison tests
-make build PUBLIC_URL=/cube/      # the bundle GitHub Pages serves
+make dev                                           # live reload, http://127.0.0.1:8088
+make preview PUBLIC_URL=/cube/ PREVIEW_PORT=...    # the release build, served from that path
+make test                                          # unit, property and SageMath comparison tests
+make build PUBLIC_URL=/cube/                       # the bundle GitHub Pages serves
 ```
-
-`make preview` is the one to trust before publishing: it builds in release,
-serves from the same sub-path Pages will use, and does not inject the reload
-script, so a broken `PUBLIC_URL` shows up here rather than after a deploy. Both
-take `ADDRESS=0.0.0.0` to reach them from another device, and `PORT` /
-`PREVIEW_PORT` to move them.
 
 The toolchain on your `PATH` needs the wasm target
 (`rustup target add wasm32-unknown-unknown`); the Makefile puts `~/.cargo/bin`
@@ -121,26 +101,16 @@ crates/cube-export   the same exports from the command line
   then never drawn, which halves the output.
 - **Framing.** The scale comes from the sphere the cube turns inside, so the
   view neither breathes while you drag nor clips a layer at 45 degrees.
-- **Correctness.** The move permutations are checked against SageMath's
-  `CubeGroup` (`make vectors` regenerates the table), and the rest is property
+- **Correctness.** The move permutations and the cycle notation are checked
+  against SageMath's `CubeGroup`, string for string (`make vectors` regenerates
+  the table), and the rest is property
   tested with proptest: four quarter turns are the identity, a maneuver is
   undone by its reverse, colors are never created or destroyed, the numbering
   is a bijection, the drawing always fits its viewBox, a face-on view shows
   exactly one face, and so on.
 
-## Next
-
-- **The solver.** `cube_core::solver::Solver` is the seat: implement it with a
-  two-phase Kociemba search and wire it to the button. The notebook
-  `../cube_groups/kociemba.ipynb` is the reference; the `kewb` crate is an
-  existing Rust two-phase solver worth measuring against.
-- **Macros**, as in geometer.org's *Rubik*: the parser already groups, repeats
-  and inverts, so named macros are a table lookup plus somewhere to keep it.
-- **More of the net**: cubie-level highlights and arrows for cycles.
 
 ## Credits
 
 The facelet numbering, the net layout and the color scheme follow SageMath's
-`sage.groups.perm_gps.cubegroup`, as used in the `kociemba.ipynb` notebook. The
-macro language and the slice and whole-cube prefixes come from Tom Davis's
-[*Rubik*](http://www.geometer.org/rubik/) and its user guide.
+`sage.groups.perm_gps.cubegroup`. The macro language and the slice and whole-cube prefixes come from Tom Davis's [*Rubik*](http://www.geometer.org/rubik/) and its user guide.

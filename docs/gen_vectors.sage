@@ -14,7 +14,7 @@ def state_after(moves):
     out = [None]*48
     for i in range(48):
         out[dest[i]-1] = solved[i+1]
-    return "".join(out)
+    return "".join(out), str(g).replace(" ", "")
 
 cases = []
 for f in "ULFRBD":
@@ -24,6 +24,10 @@ cases += [["R","U"], ["R","U","R'","U'"], ["F","L","D"],
           ["U","R2","D'","F2","L2"], ["B'","D2","L","F","U'","R","B2","D"],
           ["L","L","L","L"], ["R","L","R'","L'"]]
 
+def case(moves):
+    state, perm = state_after(moves)
+    return {"moves": moves, "state": state, "perm": perm}
+
 data = {"numbering": {str(p): lab[p] for p in range(1,49)},
-        "cases": [{"moves": c, "state": state_after(c)} for c in cases]}
+        "cases": [case(c) for c in cases]}
 print(json.dumps(data, indent=0))

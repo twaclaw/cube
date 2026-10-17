@@ -4,7 +4,7 @@
 mod sage_data;
 
 use cube_core::geom::{Face, facelet_label};
-use cube_core::{Cube, parse};
+use cube_core::{Cube, Permutation, parse};
 
 /// Facelet colors in Singmaster order, centers left out, as Sage prints them.
 fn singmaster(cube: &Cube) -> String {
@@ -28,11 +28,32 @@ fn singmaster(cube: &Cube) -> String {
 
 #[test]
 fn matches_sage() {
-    for (word, expected) in sage_data::CASES {
+    for (word, expected, _) in sage_data::CASES {
         let mut cube = Cube::solved(3);
         cube.apply_moves(&parse(3, word).expect("the test words parse"));
         assert_eq!(&singmaster(&cube), expected, "maneuver {word}");
     }
+}
+
+#[test]
+fn cycle_notation_matches_sage() {
+    for (word, _, expected) in sage_data::CASES {
+        let mut cube = Cube::solved(3);
+        cube.apply_moves(&parse(3, word).expect("the test words parse"));
+        let perm = Permutation::of(&cube).expect("a 3x3 state names a permutation");
+        assert_eq!(&perm.to_cycle_notation(), expected, "maneuver {word}");
+    }
+}
+
+#[test]
+fn the_order_of_an_element() {
+    // The notebook's example: R*U has cycle type 15, 7, 7, 3 and order 105.
+    let mut cube = Cube::solved(3);
+    cube.apply_moves(&parse(3, "R U").unwrap());
+    let perm = Permutation::of(&cube).unwrap();
+    assert_eq!(perm.cycle_type(), vec![15, 7, 7, 3]);
+    assert_eq!(perm.order(), 105);
+    assert_eq!(perm.moved(), 32);
 }
 
 #[test]

@@ -8,7 +8,7 @@ use cube_core::render::Highlights;
 use cube_core::render::cube3d::{self, Anim, CAMERA_PRESETS, Camera, Paint, Style3d};
 use cube_core::render::net::{self, NetStyle};
 use cube_core::scramble::{Rng, scramble};
-use cube_core::{Cube, notation};
+use cube_core::{Cube, Permutation, notation};
 use proptest::prelude::*;
 
 /// Cube sizes worth exercising: 2x2 up to 6x6.
@@ -235,6 +235,49 @@ proptest! {
         let strip = export::strip_svg(&cube, &moves, &cam, &st, &STANDARD, &Highlights::new(),
                                       4, Some("#fff"));
         prop_assert!(strip.starts_with("<svg") && strip.ends_with("</svg>"));
+    }
+
+    #[test]
+    fn a_state_permutes_its_facelets(n in 2u8..=3, seed: u64, len in 0usize..30) {
+        let cube = scrambled(n, seed, len);
+        let perm = Permutation::of(&cube).expect("small cubes name a permutation");
+        let mut image: Vec<u32> = perm.cycles().concat();
+        let fixed = perm.len() - perm.moved();
+        prop_assert_eq!(image.len(), perm.moved());
+        image.sort_unstable();
+        image.dedup();
+        prop_assert_eq!(image.len() + fixed, perm.len());
+        for cycle in perm.cycles() {
+            prop_assert!(cycle.len() > 1);
+            prop_assert_eq!(cycle[0], *cycle.iter().min().unwrap());
+        }
+    }
+
+    #[test]
+    fn a_solved_cube_is_the_identity(n in 2u8..=3) {
+        let perm = Permutation::of(&Cube::solved(n)).unwrap();
+        prop_assert!(perm.is_identity());
+        prop_assert_eq!(perm.to_cycle_notation(), "()");
+        prop_assert_eq!(perm.order(), 1);
+    }
+
+    #[test]
+    fn interchangeable_stickers_name_no_permutation(n in 4u8..=6) {
+        prop_assert!(Permutation::of(&Cube::solved(n)).is_none());
+    }
+
+    #[test]
+    fn the_order_is_how_often_a_maneuver_repeats(seed: u64, len in 1usize..8) {
+        let moves = scramble(3, len, &mut Rng::new(seed));
+        let mut cube = Cube::solved(3);
+        cube.apply_moves(&moves);
+        let order = Permutation::of(&cube).unwrap().order();
+        prop_assume!(order < 400);
+        let mut repeated = Cube::solved(3);
+        for _ in 0..order {
+            repeated.apply_moves(&moves);
+        }
+        prop_assert!(repeated.is_solved(), "{} repeats should solve it", order);
     }
 
     #[test]

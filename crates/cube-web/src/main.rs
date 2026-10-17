@@ -268,6 +268,15 @@ fn wire(shared: &Shared) {
     });
 
     let app = shared.clone();
+    dom::on_id::<web_sys::Event, _>("perm-body", "click", move |e| {
+        let Some(target) = e.target() else { return };
+        let element: web_sys::Element = target.unchecked_into();
+        if let Some(key) = element.get_attribute("data-facelet") {
+            app.borrow_mut().toggle_facelet(&key);
+        }
+    });
+
+    let app = shared.clone();
     dom::on_id::<web_sys::Event, _>("highlight", "input", move |_| {
         let spec = dom::input("highlight").value();
         app.borrow_mut().set_highlights(&spec);

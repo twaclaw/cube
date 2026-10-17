@@ -10,7 +10,7 @@ use cube_core::render::Highlights;
 use cube_core::render::cube3d::{self, Anim, CAMERA_PRESETS, Camera, Style3d};
 use cube_core::render::net::{self, NetStyle};
 use cube_core::scramble::{Rng, scramble};
-use cube_core::{Cube, Turn};
+use cube_core::{Cube, Permutation, Turn};
 
 /// A turn being drawn, between two states.
 #[derive(Clone, Copy)]
@@ -78,9 +78,15 @@ impl App {
 
     pub fn render(&self) {
         self.render_3d(None);
-        self.render_net();
+        self.render_state();
         self.render_chips();
         self.render_transport();
+    }
+
+    /// Everything that changes when the cube does.
+    pub fn render_state(&self) {
+        self.render_net();
+        self.render_permutation();
     }
 
     pub fn render_3d(&self, anim: Option<Anim>) {
@@ -107,6 +113,104 @@ impl App {
             &self.palette,
             &self.highlights,
         ));
+    }
+
+    /// The state as a permutation of the numbered facelets, before the
+    /// maneuver and as it stands now.
+    fn render_permutation(&self) {
+        let Some(start) = Permutation::of(&self.base) else {
+            dom::set_html(
+                "perm-body",
+                &format!(
+                    "<p class=\"perm-note\">A {n}x{n}x{n} has interchangeable stickers, \
+                     so its state does not name one permutation.</p>",
+                    n = self.n
+                ),
+            );
+            return;
+        };
+        let mut html = String::new();
+        html.push_str(&self.permutation_row("start", None, &start));
+        if let Some(now) = Permutation::of(&self.cube) {
+            let note = (!self.moves.is_empty())
+                .then(|| format!("move {} of {}", self.cursor, self.moves.len()));
+            html.push_str(&self.permutation_row("now", note.as_deref(), &now));
+        }
+        if !self.moves.is_empty() {
+            let mut from_solved = Cube::solved(self.n);
+            from_solved.apply_moves(&self.moves);
+            if let Some(maneuver) = Permutation::of(&from_solved) {
+                let note = notation::format(&self.moves);
+                html.push_str(&self.permutation_row("maneuver", Some(&note), &maneuver));
+            }
+        }
+        dom::set_html("perm-body", &html);
+    }
+
+    /// One labelled line of cycle notation, every number drawn as the facelet
+    /// it stands for.
+    fn permutation_row(&self, label: &str, note: Option<&str>, perm: &Permutation) -> String {
+        let cycles = perm.cycles();
+        let drawn = if cycles.is_empty() {
+            "<span class=\"cycle\">()</span>".to_string()
+        } else {
+            cycles
+                .iter()
+                .map(|cycle| {
+                    let chips: String = cycle.iter().map(|k| self.facelet_chip(*k)).collect();
+                    format!("<span class=\"cycle\">({chips})</span>")
+                })
+                .collect()
+        };
+        let mut stat: Vec<String> = note.map(html_escape).into_iter().collect();
+        if perm.is_identity() {
+            stat.push("the identity: nothing has moved".to_string());
+        } else {
+            stat.push(format!(
+                "order {} · {} of {} facelets moved · cycles {}",
+                perm.order(),
+                perm.moved(),
+                perm.len(),
+                perm.cycle_type()
+                    .iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join("+")
+            ));
+        }
+        format!(
+            "<div class=\"perm-row\"><dt>{label}</dt>\
+             <dd title=\"{}\"><code>{drawn}</code>\
+             <span class=\"perm-stat\">{}</span></dd></div>",
+            perm.to_cycle_notation(),
+            stat.join(" · ")
+        )
+    }
+
+    /// A facelet number as a little sticker: the color of the face it belongs
+    /// to, as the net draws it when the cube is solved.
+    fn facelet_chip(&self, number: u32) -> String {
+        let Some((face, row, col)) = facelet_from_label(self.n, number) else {
+            return format!("<span class=\"facelet\">{number}</span>");
+        };
+        let color = self.palette.face(face);
+        let ink = if color.luma() > 0.55 {
+            "#1a1a1f"
+        } else {
+            "#ffffff"
+        };
+        // Ringed here too when the facelet is ringed in the net.
+        let ring = if self.highlights.contains(&(face, row, col)) {
+            format!(";box-shadow:0 0 0 2px {}", self.palette.highlight.hex())
+        } else {
+            String::new()
+        };
+        format!(
+            "<span class=\"facelet\" style=\"background:{};color:{ink}{ring}\" \
+             data-facelet=\"{}-{row}-{col}\">{number}</span>",
+            color.hex(),
+            face.letter()
+        )
     }
 
     fn render_chips(&self) {
@@ -287,7 +391,7 @@ impl App {
         };
         self.running = None;
         if self.playing && self.begin(true, now) {
-            self.render_net();
+            self.render_state();
             self.render_chips();
             self.render_transport();
             return true;
@@ -337,14 +441,19 @@ impl App {
             self.highlights.insert(facelet);
         }
         self.sync_highlight_field();
-        self.render_net();
-        self.render_3d(None);
+        self.render_highlights();
     }
 
     pub fn set_highlights(&mut self, spec: &str) {
         self.highlights = parse_highlight_spec(self.n, spec);
+        self.render_highlights();
+    }
+
+    /// Everything that shows a ring.
+    fn render_highlights(&self) {
         self.render_net();
         self.render_3d(None);
+        self.render_permutation();
     }
 
     pub fn sync_highlight_field(&self) {

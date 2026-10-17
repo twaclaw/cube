@@ -3,3 +3,6 @@
 **/*.rs.bk
 .DS_Store
 /figures
+
+# sage preparses .sage files next to them
+*.sage.py
