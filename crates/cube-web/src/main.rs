@@ -152,6 +152,28 @@ fn animate(shared: Shared) {
     }
 }
 
+/// The views that can be pinned, each with the figure it marks.
+const PINNABLE: [(&str, &str); 3] = [
+    ("pin-3d", "fig-3d"),
+    ("pin-net", "fig-net"),
+    ("pin-perm", "fig-perm"),
+];
+
+/// Pin one view and clear the rest. `None` leaves the views as they were
+/// written, which is what unticking the only ticked box does.
+fn set_pinned(chosen: Option<&str>) {
+    for (pin, figure) in PINNABLE {
+        let on = chosen == Some(pin);
+        dom::input(pin).set_checked(on);
+        let classes = dom::by_id(figure).class_list();
+        let _ = if on {
+            classes.add_1("pinned")
+        } else {
+            classes.remove_1("pinned")
+        };
+    }
+}
+
 fn wire(shared: &Shared) {
     // the maneuver
     let app = shared.clone();
@@ -234,6 +256,15 @@ fn wire(shared: &Shared) {
             }
         }
     });
+
+    // Pinning: at most one view is kept under the console on a narrow screen,
+    // so that pressing play does not leave it off the top of the phone.
+    for (pin, _) in PINNABLE {
+        dom::on_id::<web_sys::Event, _>(pin, "change", move |_| {
+            let chosen = dom::input(pin).checked().then_some(pin);
+            set_pinned(chosen);
+        });
+    }
 
     // the views
     let app = shared.clone();

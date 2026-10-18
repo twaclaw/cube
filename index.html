@@ -155,6 +155,7 @@
         </label>
         <label class="check"><input type="checkbox" id="zoom-on"> zoom</label>
         <button type="button" id="view-reset" class="ghost">reset</button>
+        <label class="check pin"><input type="checkbox" id="pin-3d" aria-label="keep the cube in three dimensions in view"> keep in view</label>
         <span class="hint">drag to rotate</span>
       </figcaption>
     </figure>
@@ -170,12 +171,14 @@
                  placeholder="1,3,8-11" aria-label="facelets to ring">
         </label>
         <button type="button" id="highlight-clear" class="ghost">clear</button>
+        <label class="check pin"><input type="checkbox" id="pin-net" aria-label="keep the unfolded net in view"> keep in view</label>
         <span class="hint">click a facelet</span>
       </figcaption>
     </figure>
     <figure class="view perm" id="fig-perm">
       <figcaption class="perm-head">
         as a permutation
+        <label class="check pin"><input type="checkbox" id="pin-perm" aria-label="keep the permutation in view"> keep in view</label>
         <span class="hint">each cycle says where facelets go, numbered as in the net</span>
       </figcaption>
       <dl id="perm-body"></dl>

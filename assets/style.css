@@ -296,6 +296,25 @@ body.embed.with-controls figcaption { display: flex; }
 body.hide-net .views, body.hide-3d .views { grid-template-columns: 1fr; }
 body.hide-net #fig-net, body.hide-3d #fig-3d { display: none; }
 
+/* Pinning a view. Once the views sit side by side there is nothing to fix,
+   so the control only exists on a narrow screen. */
+@media (min-width: 780px) {
+  .pin { display: none; }
+}
+
+@media (max-width: 779px) {
+  .view.pinned {
+    order: -1;                 /* straight under the console */
+    position: sticky;
+    top: .5rem;
+    z-index: 5;
+    border-color: var(--accent);
+    /* A long cycle list must not swallow the whole screen. */
+    max-height: 72vh;
+    overflow: auto;
+  }
+}
+
 /* Standing guidance under the input, next to the status line the app rewrites. */
 .form-hint {
   margin: .4rem 0 0;
