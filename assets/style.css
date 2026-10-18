@@ -296,6 +296,13 @@ body.embed.with-controls figcaption { display: flex; }
 body.hide-net .views, body.hide-3d .views { grid-template-columns: 1fr; }
 body.hide-net #fig-net, body.hide-3d #fig-3d { display: none; }
 
+/* Standing guidance under the input, next to the status line the app rewrites. */
+.form-hint {
+  margin: .4rem 0 0;
+  font-size: .85rem;
+  color: var(--soft);
+}
+
 /* The prose under the app: what a reader, or a crawler, sees without wasm. */
 .about {
   width: min(1180px, 100%);
