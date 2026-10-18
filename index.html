@@ -3,16 +3,72 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rubik's cube</title>
-<meta name="description" content="A Rubik's cube drawn twice, as a 3D cube and as a flat net, with animated maneuvers and SVG export.">
+<title>Rubik's Cube Solver and Visualizer: 3D, Net and Cycle Views</title>
+<meta name="description" content="Scramble, turn and solve a Rubik's cube in the browser: a 3D view, the unfolded net, disjoint cycle notation, Kociemba's two-phase solver and SVG export. Any cube size.">
+<meta name="author" content="Diego Sandoval">
+<link rel="canonical" href="https://twaclaw.github.io/cube/">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f0f14" media="(prefers-color-scheme: dark)">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Divertimenti">
+<meta property="og:url" content="https://twaclaw.github.io/cube/">
+<meta property="og:title" content="Rubik's Cube Solver and Visualizer">
+<meta property="og:description" content="A cube in 3D, unfolded as a net and written as a permutation, with Kociemba's two-phase solver and SVG export. Built in Rust, running as WebAssembly.">
+<meta property="og:image" content="https://twaclaw.github.io/cube/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A Rubik's cube in three dimensions after the maneuver R U R' U'">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Rubik's Cube Solver and Visualizer">
+<meta name="twitter:description" content="A cube in 3D, unfolded as a net and written as a permutation, with Kociemba's two-phase solver and SVG export.">
+<meta name="twitter:image" content="https://twaclaw.github.io/cube/og.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Rubik's Cube Solver and Visualizer",
+  "url": "https://twaclaw.github.io/cube/",
+  "applicationCategory": "EducationalApplication",
+  "applicationSubCategory": "Puzzle solver",
+  "operatingSystem": "Any",
+  "browserRequirements": "Requires a browser with WebAssembly",
+  "isAccessibleForFree": true,
+  "inLanguage": "en",
+  "image": "https://twaclaw.github.io/cube/og.png",
+  "description": "A Rubik's cube drawn in three dimensions, unfolded as a net and written in disjoint cycle notation, with Kociemba's two-phase solver, a notation parser and SVG export. Written in Rust and compiled to WebAssembly.",
+  "featureList": [
+    "Interactive 3D cube with rotation and zoom",
+    "Unfolded net with facelet numbers and highlights",
+    "Disjoint cycle notation of the cube state",
+    "Kociemba's two-phase solver, about 20 moves",
+    "Parses WCA, SageMath and Rubik macro notation",
+    "Cubes from 2x2 up to 7x7",
+    "SVG, animated SVG and HTML export"
+  ],
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": {
+    "@type": "Person",
+    "name": "Diego Sandoval",
+    "url": "https://twaclaw.github.io/"
+  },
+  "codeRepository": "https://github.com/twaclaw/cube",
+  "programmingLanguage": ["Rust", "WebAssembly", "Python"]
+}
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%231a1a1f'/%3E%3Crect x='2' y='2' width='5' height='5' rx='1.4' fill='%23009e60'/%3E%3Crect x='9' y='2' width='5' height='5' rx='1.4' fill='%23fdfdfd'/%3E%3Crect x='2' y='9' width='5' height='5' rx='1.4' fill='%23ffd500'/%3E%3Crect x='9' y='9' width='5' height='5' rx='1.4' fill='%23c41e3a'/%3E%3C/svg%3E">
 <link data-trunk rel="rust" href="crates/cube-web/Cargo.toml" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int"/>
 <link data-trunk rel="css" href="assets/style.css"/>
+<link data-trunk rel="copy-file" href="assets/og.png"/>
+<link data-trunk rel="copy-file" href="assets/sitemap.xml"/>
 </head>
 <body>
 <header class="page-head">
   <h1>Rubik's cube</h1>
-  <p>Enter a move and press load.</p>
+  <p>Turn it, scramble it, solve it. The same state drawn three ways: in three
+     dimensions, unfolded as a net, and written as a permutation of the cube
+     group.</p>
 </header>
 
 <main>
@@ -124,7 +180,63 @@
       </table>
     </details>
   </section>
+
+  <section class="about">
+    <h2>What this is</h2>
+    <p>A Rubik's cube that lives entirely in the browser: no server, no
+      account, nothing to install. The geometry, the solver and every drawing
+      are written in <a href="https://www.rust-lang.org/">Rust</a> and compiled
+      to WebAssembly, so a scramble and its solution are computed on your own
+      machine in a few milliseconds.</p>
+
+    <h2>Three views of one state</h2>
+    <p>The <strong>3D view</strong> is a perspective projection you can drag to
+      rotate and zoom, with named camera presets for reproducible figures. The
+      <strong>net</strong> is the cube unfolded flat, optionally with facelet
+      numbers, and you can ring any set of facelets by clicking them or by
+      typing a list such as <code>1,3,8-11</code>. The
+      <strong>permutation</strong> panel writes the state in disjoint cycle
+      notation, each cycle saying where a facelet travels. The numbering, the
+      net layout and the colors follow SageMath's
+      <code>sage.groups.perm_gps.cubegroup</code>, so a cycle printed here is
+      the string SageMath prints.</p>
+
+    <h2>Solving</h2>
+    <p>The <strong>solve</strong> button runs Kociemba's two-phase algorithm,
+      which reaches the solved state in about twenty moves. Phase one takes the
+      cube into the subgroup <code>H = &lt;U, D, R2, L2, F2, B2&gt;</code> and
+      phase two finishes inside it. There is more on how and why it works in
+      <a href="https://twaclaw.github.io/posts/projects/rubik/">Magic Squares and
+      Cubes</a>.</p>
+
+    <h2>Notation</h2>
+    <p>The parser reads WCA notation (<code>R2 U F'</code>), the SageMath
+      product (<code>R^2*U*F^-1</code>), and the crammed macro language of Tom
+      Davis's <a href="http://www.geometer.org/rubik/"><i>Rubik</i></a>, where
+      <code>rfu</code> means <code>R' F' U'</code>. Slices, wide turns,
+      whole-cube rotations and repeated groups such as <code>(R U)3</code> all
+      parse, and the notations can be mixed in one line. Cubes from 2x2 to 7x7
+      can be drawn and turned; the solver is for the 3x3.</p>
+
+    <h2>Taking the drawings with you</h2>
+    <p>Every view exports as SVG: a still, the flat net, a whole maneuver as a
+      grid of labeled steps, an animated SVG that plays inside an
+      <code>&lt;img&gt;</code> tag, or a self-contained HTML player. The embed
+      snippet gives you an <code>&lt;iframe&gt;</code> of this page, state and
+      all, still interactive. The same renderer is a command line tool and a
+      Python module, which is how the figures in the
+      <a href="https://github.com/twaclaw/cube/blob/main/notebooks/cube.py">marimo
+      notebook</a> are drawn.</p>
+
+    <p class="colophon">Free and open source.
+      <a href="https://github.com/twaclaw/cube">Source on GitHub</a> ·
+      <a href="https://twaclaw.github.io/">Divertimenti</a></p>
+  </section>
 </main>
 
+<noscript>
+  <p class="noscript">The cube itself needs JavaScript and WebAssembly to run.
+    The description below works without either.</p>
+</noscript>
 </body>
 </html>

@@ -11,9 +11,10 @@ permissions:
   pages: write
   id-token: write
 
+# Let a running deployment finish rather than cancelling it half way.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check:
@@ -39,9 +40,47 @@ jobs:
       - uses: jetli/trunk-action@v0.5.0
         with:
           version: latest
+
+      # Reports the path the site is served from, so the build does not have to
+      # guess it. This step cannot switch Pages on: the action's `enablement`
+      # input needs a token other than GITHUB_TOKEN, so Pages is turned on once
+      # by hand under Settings > Pages, with the source set to GitHub Actions.
+      # Until that is done the step fails, and the fallback below is used.
+      - name: Configure Pages
+        id: pages
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+
       - name: Build
-        run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
+        run: trunk build --release --public-url "${{ steps.pages.outputs.base_path || format('/{0}', github.event.repository.name) }}/"
+
+      # Release builds are minified, which drops attribute quotes, so match
+      # loosely and parse the structured data rather than grepping it.
+      - name: Check the metadata survived the build
+        run: |
+          set -eu
+          for needle in 'rel="?canonical' 'og:image' 'og:title' 'twitter:card'; do
+            grep -qE "$needle" dist/index.html || { echo "missing: $needle"; exit 1; }
+          done
+          test -f dist/og.png
+          test -f dist/sitemap.xml
+          python3 -I - <<'PY'
+          import json, re, pathlib, sys
+          html = pathlib.Path("dist/index.html").read_text()
+          block = re.search(r'ld\+json[^>]*>(.*?)</script>', html, re.S)
+          if not block:
+              sys.exit("no JSON-LD block in dist/index.html")
+          data = json.loads(block.group(1))
+          for key in ("@context", "@type", "name", "url", "description"):
+              if not data.get(key):
+                  sys.exit(f"JSON-LD is missing {key}")
+          print("JSON-LD ok:", data["@type"], "-", data["name"])
+          PY
+          echo "metadata ok"
+
       - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main'
         with:
           path: dist
 

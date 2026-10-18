@@ -17,7 +17,7 @@ NOTEBOOK     ?= notebooks/cube.py
 NB_PORT      ?= 2718
 APP_PORT     ?= 2719
 
-.PHONY: help dev preview build test lint fmt update figures vectors python notebook app page post clean
+.PHONY: help dev preview build test lint fmt update figures og vectors python notebook app page post clean
 
 help: ## Show this help
 	@printf "$(BOLD)cube$(RESET) -- a Rubik's cube in 3D and as a net, drawn in SVG\n"
@@ -90,6 +90,10 @@ figures: ## Write sample figures with the command line exporter
 	cargo run --release -p cube-export -- -s "R U R' U'" --mode player \
 	    -o $(FIGURES)/sexy-move.html
 	@ls -lh $(FIGURES)
+
+og: ## Redraw the social preview cards (needs rsvg-convert)
+	scripts/og-image.sh assets/og.png 1200 630
+	scripts/og-image.sh assets/social-preview.png 1280 640
 
 vectors: ## Regenerate the SageMath ground truth (needs sage on PATH)
 	sage docs/gen_vectors.sage | python3 docs/vectors_to_rust.py - \

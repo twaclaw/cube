@@ -254,7 +254,7 @@ button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4
 /* ?embed=1 strips the page down to the views; ?controls=1 puts them back. */
 body.embed { padding: .5rem; gap: .5rem; }
 body.embed .page-head, body.embed .console, body.embed .perm,
-body.embed figcaption { display: none; }
+body.embed .about, body.embed figcaption { display: none; }
 body.embed .view { box-shadow: none; }
 body.embed.with-controls /* the permutation panel runs the width of both views */
 .perm { grid-column: 1 / -1; gap: .5rem; }
@@ -295,3 +295,43 @@ body.embed.with-controls /* the permutation panel runs the width of both views *
 body.embed.with-controls figcaption { display: flex; }
 body.hide-net .views, body.hide-3d .views { grid-template-columns: 1fr; }
 body.hide-net #fig-net, body.hide-3d #fig-3d { display: none; }
+
+/* The prose under the app: what a reader, or a crawler, sees without wasm. */
+.about {
+  width: min(1180px, 100%);
+  border-top: 1px solid var(--line);
+  padding-top: 1.25rem;
+  color: var(--soft);
+}
+/* The rule runs the full width; the prose stays at a readable measure. */
+.about h2, .about p { max-width: 68ch; }
+.about h2 {
+  margin: 1.5rem 0 .4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -.01em;
+}
+.about h2:first-of-type { margin-top: 0; }
+.about p { margin: 0 0 .6rem; }
+.about a { color: var(--accent); }
+.about code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .9em;
+  color: var(--ink);
+}
+.about .colophon {
+  margin-top: 1.25rem;
+  padding-top: .75rem;
+  border-top: 1px solid var(--line);
+  font-size: .9rem;
+}
+.noscript {
+  width: min(1180px, 100%);
+  margin: 0;
+  padding: .75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--soft);
+}

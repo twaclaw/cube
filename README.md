@@ -1,6 +1,12 @@
 # cube
 
-A Rubik's cube representation implemented in Rust. Available online at [https://twaclaw.github.io/cube](https://twaclaw.github.io/cube).
+A Rubik's cube representation implemented in Rust, in the browser, on the
+command line and from Python.
+
+**[Try it online](https://twaclaw.github.io/cube/)**  |
+[The algorithm, written up](https://twaclaw.github.io/posts/projects/rubik/)
+
+[![the cube in 3D and as a net](assets/og.png)](https://twaclaw.github.io/cube/)
 
 The app uses [trunk](https://trunk-rs.github.io/trunk/) to export to web assembly. It consist of two main components:
 
