@@ -30,7 +30,7 @@ The parsers reads different notations and they can be mixed.
 |---|---|
 | `U D L R F B` | quarter turn of that face, clockwise |
 | `u d l r f b` | the same turn counter-clockwise, so `rfu` is `R' F' U'` |
-| `'` `2` $^2$ $^{-1}$ | inverse, half turn, SageMath style exponents |
+| `'` `2` $\cdot^2$ $\cdot^{-1}$ | inverse, half turn, SageMath style exponents |
 | `M E S` | middle slice, following L, D and F |
 | `*F` `>F` | slice and whole-cube turn, as in geometer.org's *Rubik* |
 | `x y z` | whole-cube turns |
