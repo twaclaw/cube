@@ -183,11 +183,10 @@
 
   <section class="about">
     <h2>What this is</h2>
-    <p>A Rubik's cube that lives entirely in the browser: no server, no
-      account, nothing to install. The geometry, the solver and every drawing
+    <p>A Rubik's cube that lives entirely in the browser: no server, and nothing to install.
+      The geometry, the solver and every drawing
       are written in <a href="https://www.rust-lang.org/">Rust</a> and compiled
-      to WebAssembly, so a scramble and its solution are computed on your own
-      machine in a few milliseconds.</p>
+      to WebAssembly.</p>
 
     <h2>Three views of one state</h2>
     <p>The <strong>3D view</strong> is a perspective projection you can drag to
@@ -198,8 +197,7 @@
       <strong>permutation</strong> panel writes the state in disjoint cycle
       notation, each cycle saying where a facelet travels. The numbering, the
       net layout and the colors follow SageMath's
-      <code>sage.groups.perm_gps.cubegroup</code>, so a cycle printed here is
-      the string SageMath prints.</p>
+      <code>sage.groups.perm_gps.cubegroup</code>. </p>
 
     <h2>Solving</h2>
     <p>The <strong>solve</strong> button runs Kociemba's two-phase algorithm,
@@ -218,7 +216,7 @@
       parse, and the notations can be mixed in one line. Cubes from 2x2 to 7x7
       can be drawn and turned; the solver is for the 3x3.</p>
 
-    <h2>Taking the drawings with you</h2>
+    <h2>Exporting the drawings and animations</h2>
     <p>Every view exports as SVG: a still, the flat net, a whole maneuver as a
       grid of labeled steps, an animated SVG that plays inside an
       <code>&lt;img&gt;</code> tag, or a self-contained HTML player. The embed
