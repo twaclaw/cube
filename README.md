@@ -1,39 +1,36 @@
 # cube
 
-A Rubik's cube representation.
+A Rubik's cube representation implemented in Rust. Available online at [https://twaclaw.github.io/cube](https://twaclaw.github.io/cube).
+
+The app uses [trunk](https://trunk-rs.github.io/trunk/) to export to web assembly. It consist of two main components:
+
+- A web app with the visualizations and solver (Kociemba's two phase algorithm), and
+- A thin Python API (via PYO3) making the visualizations and animations availables to a Python client (e.g., a marimo notebook).
+
 
 ## What it does
 
-- **Two views, one state.** Drag the 3D cube to turn it, or pick a named view.
-  Zoom is off until you tick the box, so a scroll never hijacks the page.
-- **Maneuvers.** Type a sequence and press enter to load it; nothing moves
-  until you say so. Play it, step a move at a time, jump to any move by
-  clicking it, or apply the rest at once. Turns are animated: the layer really
-  rotates, and the cut it opens shows the dark body underneath.
+- **Different views, one state.** Different views of a cube state: 3d with zoom and rotation, unfolded, disjoin cycle notation.
+- **Moves.** Type a sequence and press enter to load it and execute it either in play or step mode.
 - **Scramble / solved / solve.** One button for a random state, one for the
   solved cube, and one that solves it: Kociemba's two-phase algorithm, in about
-  20 moves and a few milliseconds. The answer loads as the maneuver, so you can
-  play or step through it, and both phases are written out underneath.
-- **Facelet numbers** on the net, on by default, in the SageMath numbering the
-  notebooks use (1..48, U L F R B D, centers skipped). `?numbers=0` or the
-  checkbox turns them off.
+  20 moves and a few milliseconds. 
+- **Optional Facelet numbers** 
 - **Highlights.** Click a facelet to ring it, or list numbers such as
   `1,3,8-11`. This is how the notebooks mark the facelets that break an
-  invariant of the group `H = <U, D, R², L², F², B²>`.
-- **Exports** for a blog, all from the same renderer (see below).
-- **Any cube size.** The model and both renderers are written for n×n×n; the
-  size selector goes from 2 to 7. Only the future solver is 3x3 only.
+  invariant of the group $H = \langle U, D, R^2, L^2, F^2, B^2\rangle$.
+- **Exports** for a blog, all from the same renderer.
+- **Any cube size.**  support for visualizing cubes of different sizes (but the solver is only for $3\times 3$).
 
 ## Notation
 
-One parser reads the three notations this project cares about, and they can be
-mixed:
+The parsers reads different notations and they can be mixed.
 
 | written | means |
 |---|---|
 | `U D L R F B` | quarter turn of that face, clockwise |
 | `u d l r f b` | the same turn counter-clockwise, so `rfu` is `R' F' U'` |
-| `'` `2` `^2` `^-1` | inverse, half turn, SageMath style exponents |
+| `'` `2` $^2$ $^{-1}$ | inverse, half turn, SageMath style exponents |
 | `M E S` | middle slice, following L, D and F |
 | `*F` `>F` | slice and whole-cube turn, as in geometer.org's *Rubik* |
 | `x y z` | whole-cube turns |
@@ -44,6 +41,20 @@ mixed:
 as does the crammed `rfu` of the *Rubik* macro language. A `*` between two
 moves is read as the SageMath product; a `*` that starts a move is the slice
 prefix.
+
+## From Python, and from a notebook
+
+The same renderer, as a Python module (I wanted a marimo notebook but can be any Python client).
+See [cube.py](./notebooks/cube.py). 
+
+
+
+```sh
+make python     # maturin develop: builds magiccube into .venv
+make notebook   # opens notebooks/cube.py in marimo
+make post       # runs the notebook, writes figures/, exports cube.md
+```
+
 
 ## Exports
 
@@ -56,8 +67,7 @@ prefix.
 | animation, HTML page | self-contained player with play, step and scrub |
 | embed snippet | an `<iframe>` of the live app, state and all, still interactive |
 
-The same drawings come out of the command line exporter, which is what a blog
-build should call:
+The same drawings come out of the command line exporter:
 
 ```sh
 cargo run -p cube-export -- --help
@@ -79,18 +89,16 @@ make test                                          # unit, property and SageMath
 make build PUBLIC_URL=/cube/                       # the bundle GitHub Pages serves
 ```
 
-The toolchain on your `PATH` needs the wasm target
-(`rustup target add wasm32-unknown-unknown`); the Makefile puts `~/.cargo/bin`
-first so rustup's toolchain wins over a package-manager Rust that has no wasm
-std. Pushing to `main` builds and publishes through
-`.github/workflows/pages.yml`.
 
-## How it is put together
+## Structure
 
 ```
-crates/cube-core     state, moves, notation, both SVG renderers, exports
+crates/cube-core     state, moves, notation, the SVG renderers, solver, exports
 crates/cube-web      the browser front end (wasm-bindgen and web-sys only)
 crates/cube-export   the same exports from the command line
+crates/cube-py       the same drawings as a Python module (maturin, outside
+                     the cargo workspace: it links against the interpreter)
+notebooks            a marimo notebook with one example of each view
 ```
 
 - **Geometry.** A facelet is a point on a doubled, centered integer lattice plus
