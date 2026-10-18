@@ -130,3 +130,5 @@ notebooks            a marimo notebook with one example of each view
 
 - The facelet numbering, the net layout and the color scheme follow SageMath's `sage.groups.perm_gps.cubegroup`. The macro language and the slice and whole-cube prefixes come from Tom Davis's [*Rubik*](http://www.geometer.org/rubik/) and its user guide.
 - This is continuation of previous work of mine, see [this blog post](https://twaclaw.github.io/posts/projects/rubik/) and this [repository](https://github.com/twaclaw/rubik) describing different algorithms for solving Rubik's cube.
+- [Kociemba's page](https://kociemba.org/)
+- [Kociemba's original solver](https://github.com/hkociemba/RubiksCube-TwophaseSolver)
