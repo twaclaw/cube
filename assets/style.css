@@ -256,7 +256,14 @@ body.embed { padding: .5rem; gap: .5rem; }
 body.embed .page-head, body.embed .console,
 body.embed .about, body.embed figcaption { display: none; }
 body.embed .view { box-shadow: none; }
-body.embed.with-controls /* the permutation panel runs the width of both views */
+
+/* ?controls=1 puts the console back: the maneuver box, the transport, the
+   solver, and the view select that chooses where the solution is shown.
+   Keep the comment out of the selector -- spliced in above, it merged this
+   selector into the .perm rule and left every embed without a console. */
+body.embed.with-controls .console { display: grid; }
+
+/* the permutation panel runs the width of both views */
 .perm { grid-column: 1 / -1; gap: .5rem; }
 .perm-head { border-top: none; border-bottom: 1px solid var(--line); padding: 0 0 .5rem; }
 .perm-head .hint { font-style: italic; }
