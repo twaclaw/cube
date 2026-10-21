@@ -20,6 +20,30 @@ fn now() -> f64 {
     dom::now()
 }
 
+/// Show the figure the view select names, hiding the rest.
+///
+/// An empty name is the default: the two cube views share the row, with the
+/// permutation panel underneath. That panel is the one asymmetry -- it is a
+/// page of text rather than a picture, so an embed leaves it out unless it
+/// was asked for by name. Whether this is an embed is read back off the body
+/// rather than threaded through, so the change handler needs no state.
+fn apply_view(view: &str) {
+    let classes = dom::document().body().expect("a body").class_list();
+    for name in ["hide-3d", "hide-net", "hide-perm"] {
+        let _ = classes.remove_1(name);
+    }
+    let hidden: &[&str] = match view {
+        "3d" => &["hide-net", "hide-perm"],
+        "net" => &["hide-3d", "hide-perm"],
+        "perm" => &["hide-3d", "hide-net"],
+        _ if classes.contains("embed") => &["hide-perm"],
+        _ => &[],
+    };
+    for name in hidden {
+        let _ = classes.add_1(name);
+    }
+}
+
 fn main() {
     console_error_panic_hook::set_once();
     app::fill_presets();
@@ -80,15 +104,20 @@ fn main() {
             let _ = classes.add_1("with-controls");
         }
     }
-    match params.get("views").as_deref() {
-        Some("3d") => {
-            let _ = classes.add_1("hide-net");
-        }
-        Some("net") => {
-            let _ = classes.add_1("hide-3d");
-        }
-        _ => {}
-    }
+    // ?views= names the one figure to keep, and is also where the view select
+    // starts. Anything unrecognised falls back to the default rather than
+    // leaving the select showing a value it does not have.
+    let view = match params.get("views").as_deref() {
+        Some("3d") => "3d",
+        Some("net") => "net",
+        Some("perm") => "perm",
+        _ => "",
+    };
+    dom::select("view").set_value(view);
+    apply_view(view);
+    dom::on_id::<web_sys::Event, _>("view", "change", |_| {
+        apply_view(&dom::select("view").value());
+    });
 
     let shared: Shared = Rc::new(RefCell::new(state));
     wire(&shared);

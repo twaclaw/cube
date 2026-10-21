@@ -253,7 +253,7 @@ button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4
 
 /* ?embed=1 strips the page down to the views; ?controls=1 puts them back. */
 body.embed { padding: .5rem; gap: .5rem; }
-body.embed .page-head, body.embed .console, body.embed .perm,
+body.embed .page-head, body.embed .console,
 body.embed .about, body.embed figcaption { display: none; }
 body.embed .view { box-shadow: none; }
 body.embed.with-controls /* the permutation panel runs the width of both views */
@@ -293,8 +293,12 @@ body.embed.with-controls /* the permutation panel runs the width of both views *
 
 .console { display: grid; }
 body.embed.with-controls figcaption { display: flex; }
+/* Which figures are on show. All three are driven the same way now, by the
+   view select and by ?views=, so an embed that asks for the permutation gets
+   it: hiding it is a default, not a property of being embedded. */
 body.hide-net .views, body.hide-3d .views { grid-template-columns: 1fr; }
-body.hide-net #fig-net, body.hide-3d #fig-3d { display: none; }
+body.hide-net #fig-net, body.hide-3d #fig-3d,
+body.hide-perm #fig-perm { display: none; }
 
 /* Pinning a view. Once the views sit side by side there is nothing to fix,
    so the control only exists on a narrow screen. */
