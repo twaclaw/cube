@@ -16,7 +16,7 @@ pub const N_UD_EDGES: usize = 40320; // 8! permutations of the U and D edges
 
 /// Corner slots, each as its three facelets read clockwise from outside,
 /// starting at the U or D facelet. Order: URF UFL ULB UBR DFR DLF DBL DRB.
-const CORNERS: [[(Face, u8, u8); 3]; 8] = [
+pub const CORNERS: [[(Face, u8, u8); 3]; 8] = [
     [(Face::U, 2, 2), (Face::R, 0, 0), (Face::F, 0, 2)],
     [(Face::U, 2, 0), (Face::F, 0, 0), (Face::L, 0, 2)],
     [(Face::U, 0, 0), (Face::L, 0, 0), (Face::B, 0, 2)],
@@ -29,7 +29,7 @@ const CORNERS: [[(Face, u8, u8); 3]; 8] = [
 
 /// Edge slots, reference facelet first. Order: UR UF UL UB DR DF DL DB, then
 /// the four slice edges FR FL BL BR.
-const EDGES: [[(Face, u8, u8); 2]; 12] = [
+pub const EDGES: [[(Face, u8, u8); 2]; 12] = [
     [(Face::U, 1, 2), (Face::R, 0, 1)],
     [(Face::U, 2, 1), (Face::F, 0, 1)],
     [(Face::U, 1, 0), (Face::L, 0, 1)],

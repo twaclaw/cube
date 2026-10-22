@@ -7,6 +7,7 @@
   --line: #e0e0e8;
   --accent: #2a78d6;
   --accent-ink: #ffffff;
+  --accent-soft: #eaf2fc;
   --radius: 14px;
   --shadow: 0 1px 2px rgba(16, 16, 26, .06), 0 8px 24px rgba(16, 16, 26, .06);
 }
@@ -20,6 +21,7 @@
     --line: #2b2b36;
     --accent: #5a9bff;
     --accent-ink: #0b1020;
+    --accent-soft: #1b2436;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .35);
   }
 }
@@ -123,6 +125,16 @@ button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4rem; }
+/* solve and edit work on the cube itself, rather than setting it or choosing
+   what to look at, so they are their own group and read as one. */
+button.tool {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+button.tool:hover:not(:disabled) { border-color: var(--accent); filter: brightness(.97); }
+button.tool:disabled { border-color: var(--line); color: var(--soft); background: var(--panel); }
 
 /* the permutation panel runs the width of both views */
 .perm { grid-column: 1 / -1; gap: .5rem; }
@@ -186,31 +198,35 @@ button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4
 .transport { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
 .transport .speed { margin-left: auto; color: var(--soft); font-size: .85rem; }
 
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .3rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .85rem;
-}
-.chips:empty { display: none; }
-.chips li {
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: .1rem .45rem;
+/* Each move of a solution, marked as the stepper walks the two phases. */
+.solution .move {
+  display: inline-block;
+  margin-right: .35rem;
+  padding: .05rem .3rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--soft);
   cursor: pointer;
+  white-space: nowrap;
 }
-.chips li.done { color: var(--ink); border-color: var(--soft); }
-.chips li.current { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-/* where phase 1 hands over to phase 2 */
-.chips li.phase2 { box-shadow: -3px 0 0 var(--accent); margin-left: .35rem; }
+.solution .move:hover { border-color: var(--soft); }
+.solution .move.done { color: var(--ink); }
+.solution .move.current {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.solution .move-none { color: var(--soft); }
 
 .actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
 .actions .spacer { flex: 1; }
+/* Air either side of the tool group, so the row reads as three batches of
+   controls rather than one long run of buttons. */
+.actions-break { width: .9rem; }
+@media (max-width: 560px) {
+  /* Too little room to separate them sideways: break the line instead. */
+  .actions-break { flex-basis: 100%; width: 0; height: 0; }
+}
 
 .menu { position: relative; }
 .menu summary {
@@ -253,7 +269,7 @@ button.ghost { border-color: transparent; color: var(--soft); padding: .25rem .4
 
 /* ?embed=1 strips the page down to the views; ?controls=1 puts them back. */
 body.embed { padding: .5rem; gap: .5rem; }
-body.embed .page-head, body.embed .console,
+body.embed .page-head, body.embed .console, body.embed .editor,
 body.embed .about, body.embed figcaption { display: none; }
 body.embed .view { box-shadow: none; }
 
@@ -372,3 +388,143 @@ body.hide-perm #fig-perm { display: none; }
   background: var(--panel);
   color: var(--soft);
 }
+
+/* ── The cube editor ───────────────────────────────────────────────────── */
+
+.editor {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1rem;
+  display: grid;
+  gap: .85rem;
+  justify-items: start;
+}
+.editor[hidden] { display: none; }
+
+.editor-head { display: flex; gap: .75rem; align-items: baseline; flex-wrap: wrap; }
+.editor-count { color: var(--soft); font-size: .85rem; }
+
+/* The cube and the grid together: what is being entered, beside the thing
+   entering it, so a sticker can be seen landing. */
+.editor-main {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+  align-items: start;
+  width: 100%;
+}
+@media (min-width: 860px) {
+  .editor-main { grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); }
+}
+.editor-stage .view { box-shadow: none; }
+.editor-stage .stage { height: clamp(220px, 26vw, 320px); }
+.editor-board { min-width: 0; }
+
+/* The cube unfolded: four faces across, three down, each a 3x3 block. */
+.editor-grid {
+  /* The menus hang off the grid, so they are placed in its box. */
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: repeat(9, 1fr);
+  gap: 2px;
+  width: min(100%, 34rem);
+  aspect-ratio: 4 / 3;
+}
+
+.editor-grid .cell {
+  min-width: 0;
+  padding: 0;
+  /* The same outline the facelet chips carry, so a white sticker still
+     reads as a sticker against a white panel. */
+  border: 1px solid rgba(16, 16, 20, .45);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(.6rem, 1.6vw, .8rem);
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+}
+.editor-grid .cell:hover:not(:disabled) { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Room between the faces, so the net reads as six blocks and not one slab. */
+.editor-grid .face-right { margin-right: 5px; }
+.editor-grid .face-foot { margin-bottom: 5px; }
+.editor-grid .cell.center { cursor: default; opacity: 1; }
+/* An empty facelet reads as a hole, not as a white sticker. */
+.editor-grid .cell.empty { border-style: dashed; border-color: var(--soft); color: var(--soft); }
+
+/* The menu for one facelet, hung under its cell. Drawn here rather than left
+   to a native <select>, which on macOS discards an option's colors. */
+.cell-menu {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+  max-width: 14rem;
+  margin-top: .3rem;
+  padding: .35rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.cell-menu .swatch {
+  width: 2rem;
+  padding: .35rem 0;
+  border: 1px solid rgba(16, 16, 20, .45);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .8rem;
+  font-weight: 600;
+}
+.cell-menu .swatch:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cell-menu .swatch.clear {
+  width: auto;
+  padding: .35rem .6rem;
+  background: var(--panel);
+  color: var(--soft);
+  border-color: var(--line);
+}
+.swatch-none { color: var(--soft); font-size: .8rem; padding: .35rem; }
+
+#editor-letters-form { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+#editor-letters-form label { color: var(--soft); font-size: .85rem; }
+#editor-letters {
+  width: min(100%, 30rem);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .8rem;
+}
+
+.editor-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+
+/* The colour strip under the cube, while the editor is open. */
+.pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  align-items: center;
+  padding-top: .6rem;
+  border-top: 1px solid var(--line);
+}
+.pick[hidden] { display: none; }
+.pick-at {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .8rem;
+  color: var(--soft);
+  min-width: 2.5em;
+}
+.pick-hint { color: var(--soft); font-size: .85rem; font-style: italic; }
+.pick-swatch {
+  width: 2rem;
+  padding: .3rem 0;
+  border: 1px solid rgba(16, 16, 20, .45);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .8rem;
+}
+.pick-swatch.clear { width: auto; padding: .3rem .6rem; background: var(--panel); color: var(--soft); }
+/* While the editor is open a sticker is something to pick, not to drag. */
+.editing #view-3d [data-facelet] { cursor: pointer; }

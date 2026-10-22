@@ -12,6 +12,10 @@ pub fn document() -> Document {
     window().document().expect("a document")
 }
 
+pub fn body() -> web_sys::HtmlElement {
+    document().body().expect("a body")
+}
+
 pub fn by_id(id: &str) -> Element {
     document()
         .get_element_by_id(id)
@@ -24,6 +28,21 @@ pub fn input(id: &str) -> HtmlInputElement {
 
 pub fn select(id: &str) -> HtmlSelectElement {
     by_id(id).unchecked_into()
+}
+
+/// Move an element to the end of another, keeping it and its listeners
+/// alive: the cube is the same figure wherever it is shown.
+pub fn reparent(id: &str, into: &str) {
+    let node = by_id(id);
+    let _ = by_id(into).append_child(&node);
+}
+
+/// Move an element back to the front of another.
+pub fn reparent_first(id: &str, into: &str) {
+    let node = by_id(id);
+    let parent = by_id(into);
+    let first = parent.first_element_child();
+    let _ = parent.insert_before(&node, first.as_ref().map(|e| e.as_ref()));
 }
 
 pub fn set_html(id: &str, html: &str) {

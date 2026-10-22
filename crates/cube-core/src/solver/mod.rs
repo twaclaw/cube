@@ -29,6 +29,29 @@ impl fmt::Display for SolveError {
 
 impl core::error::Error for SolveError {}
 
+/// Why a set of colors is not a state the cube can be in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Flaw {
+    /// Some piece shows a pair of colors no cubie carries: the same color
+    /// twice, or two faces that never meet.
+    Pieces,
+    /// Every piece is a real one, but no sequence of turns arranges them so:
+    /// one is swapped, flipped or twisted on its own.
+    Parity,
+}
+
+/// What stops these colors being a state, if anything does: the checks a
+/// solve would make anyway, without building the tables a solve needs.
+///
+/// For a 3x3, which is the only size the cubie level is written for.
+pub fn check(cube: &Cube) -> Result<(), Flaw> {
+    match cubie::CubieCube::from_cube(cube) {
+        None => Err(Flaw::Pieces),
+        Some(c) if !c.is_solvable() => Err(Flaw::Parity),
+        Some(_) => Ok(()),
+    }
+}
+
 pub trait Solver {
     fn name(&self) -> &str;
 

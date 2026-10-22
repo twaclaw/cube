@@ -95,13 +95,17 @@
       </label>
     </div>
 
-    <ol class="chips" id="chips" aria-label="the moves"></ol>
-
     <div class="actions">
       <button type="button" id="scramble">scramble</button>
       <button type="button" id="solved">solved</button>
-      <button type="button" id="solve"
+
+      <span class="actions-break"></span>
+      <button type="button" id="solve" class="tool"
               title="Kociemba's two-phase algorithm">solve</button>
+      <button type="button" id="edit" class="tool"
+              title="type a cube in, as letters or facelet by facelet">edit</button>
+      <span class="actions-break"></span>
+
       <label>cube
         <select id="size" aria-label="cube size">
           <option>2</option><option selected>3</option><option>4</option>
@@ -152,7 +156,42 @@
     </details>
   </section>
 
-  <section class="views">
+  <section class="editor" id="editor" hidden>
+    <div class="editor-head">
+      <strong>Enter a cube</strong>
+      <span class="editor-count" id="editor-count"></span>
+    </div>
+
+    <div class="editor-main">
+      <div class="editor-stage" id="editor-stage"></div>
+      <div class="editor-board">
+        <div class="editor-grid" id="editor-grid"></div>
+      </div>
+    </div>
+
+    <form id="editor-letters-form" autocomplete="off">
+      <label for="editor-letters">as letters</label>
+      <input type="text" id="editor-letters" spellcheck="false"
+             placeholder="54 letters of U L F R B D, in numbering order"
+             aria-label="the state as letters">
+      <button type="submit">read</button>
+    </form>
+
+    <div class="editor-actions">
+      <button type="button" id="editor-apply" class="primary" disabled>use this cube</button>
+      <button type="button" id="editor-current">start from the current cube</button>
+      <button type="button" id="editor-clear">blank</button>
+      <button type="button" id="editor-close" class="ghost">close</button>
+    </div>
+
+    <p class="form-hint">Each menu offers only the colors that still leave a cube
+      that can be finished, so the grid cannot be painted into a dead end, and
+      anything that follows from what you have entered is filled in for you.
+      Letters name faces, not colors: <code>U</code> is whatever your centre
+      face is. The centres are fixed, since they are what name the six colors.</p>
+  </section>
+
+  <section class="views" id="views">
     <figure class="view" id="fig-3d">
       <div class="stage">
         <svg id="view-3d" viewBox="0 0 300 300" role="img" aria-label="the cube in three dimensions"></svg>
@@ -166,6 +205,7 @@
         <label class="check pin"><input type="checkbox" id="pin-3d" aria-label="keep the cube in three dimensions in view"> keep in view</label>
         <span class="hint">drag to rotate</span>
       </figcaption>
+      <div class="pick" id="editor-pick" hidden aria-label="the colors this sticker can take"></div>
     </figure>
 
     <figure class="view" id="fig-net">
@@ -211,6 +251,25 @@
       notation, each cycle saying where a facelet travels. The numbering, the
       net layout and the colors follow SageMath's
       <code>sage.groups.perm_gps.cubegroup</code>. </p>
+
+    <h2>Entering a cube</h2>
+    <p>The <strong>edit</strong> button opens a cube editor, either as the
+      54-letter string the query parameter carries or as an unfolded grid with
+      a menu on every facelet. A cube is not 54 free choices: the six centres
+      name the colors, and the other 48 stickers come in the twenty cubies the
+      puzzle is built from, each used exactly once. So every menu offers only
+      the colors that still leave a cube that can be finished -- which is
+      checked by matching every unfinished slot against every unused piece,
+      not by looking at one sticker at a time -- and anything that follows is
+      filled in rather than asked for. Two stickers of a corner give the
+      third; the last cubie of each kind follows from the ones before it.
+      That leaves 36 facelets to enter at worst, and about 33 on average.</p>
+    <p>While the editor is open the other two views are twins of it: the 3D
+      cube and the net both show the state as far as it has been entered,
+      stickers still open left blank, and a sticker clicked in either one can
+      be colored from the strip under the cube. The same cube, three ways of
+      reaching it, so a sticker awkward to find on the flat grid can be
+      turned to in three dimensions instead.</p>
 
     <h2>Solving</h2>
     <p>The <strong>solve</strong> button runs Kociemba's two-phase algorithm,

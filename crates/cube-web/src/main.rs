@@ -2,6 +2,7 @@
 
 mod app;
 mod dom;
+mod editor;
 
 use app::App;
 use cube_core::Cube;
@@ -230,7 +231,7 @@ fn wire(shared: &Shared) {
     dom::on_id::<MouseEvent, _>("to-end", "click", move |_| app.borrow_mut().apply_rest());
 
     let app = shared.clone();
-    dom::on_id::<web_sys::Event, _>("chips", "click", move |e| {
+    dom::on_id::<web_sys::Event, _>("solution", "click", move |e| {
         let Some(target) = e.target() else { return };
         let element: web_sys::Element = target.unchecked_into();
         if let Some(step) = element.get_attribute("data-step")
@@ -271,6 +272,109 @@ fn wire(shared: &Shared) {
         );
         let app = app.clone();
         dom::defer(20, move || app.borrow_mut().solve());
+    });
+
+    // the editor
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("edit", "click", move |_| {
+        let open = !dom::by_id("editor").has_attribute("hidden");
+        let mut state = app.borrow_mut();
+        if open {
+            state.editor_close();
+        } else {
+            state.editor_open();
+        }
+    });
+
+    // One listener for the whole board: a swatch inside an open menu sets a
+    // color, anything else with a facelet on it opens that facelet's menu.
+    let app = shared.clone();
+    dom::on_id::<web_sys::Event, _>("editor-grid", "click", move |e| {
+        let Some(target) = e.target() else { return };
+        let element: web_sys::Element = target.unchecked_into();
+        if let Ok(Some(swatch)) = element.closest("[data-color]") {
+            let color = swatch.get_attribute("data-color").unwrap_or_default();
+            let picked = app.borrow().entry_pick;
+            if let Some((face, row, col)) = picked {
+                let key = format!("{}-{row}-{col}", face.letter());
+                app.borrow_mut().editor_set(&key, &color);
+            }
+            return;
+        }
+        let Ok(Some(cell)) = element.closest("[data-facelet]") else {
+            return;
+        };
+        if let Some(key) = cell.get_attribute("data-facelet") {
+            app.borrow_mut().editor_toggle_point(&key);
+        }
+    });
+
+    // A click on the panel itself, away from any cell, puts the menu away.
+    let app = shared.clone();
+    dom::on_id::<web_sys::Event, _>("editor", "click", move |e| {
+        let Some(target) = e.target() else { return };
+        let element: web_sys::Element = target.unchecked_into();
+        let on_a_control = element
+            .closest("[data-facelet], [data-color], button, select, input")
+            .ok()
+            .flatten()
+            .is_some();
+        if !on_a_control && app.borrow().entry_pick.is_some() {
+            app.borrow_mut().editor_unpoint();
+        }
+    });
+
+    let app = shared.clone();
+    dom::on_id::<web_sys::Event, _>("view-3d", "click", move |e| {
+        if !app.borrow().editing || app.borrow().dragged {
+            return;
+        }
+        let Some(target) = e.target() else { return };
+        let element: web_sys::Element = target.unchecked_into();
+        if let Some(key) = element.get_attribute("data-facelet") {
+            app.borrow_mut().editor_point(&key);
+        }
+    });
+
+    let app = shared.clone();
+    dom::on_id::<web_sys::Event, _>("editor-pick", "click", move |e| {
+        let Some(target) = e.target() else { return };
+        let element: web_sys::Element = target.unchecked_into();
+        let Some(color) = element.get_attribute("data-color") else {
+            return;
+        };
+        let picked = app.borrow().entry_pick;
+        if let Some((face, row, col)) = picked {
+            let key = format!("{}-{row}-{col}", face.letter());
+            app.borrow_mut().editor_set(&key, &color);
+        }
+    });
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("editor-clear", "click", move |_| {
+        app.borrow_mut().editor_clear();
+    });
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("editor-current", "click", move |_| {
+        app.borrow_mut().editor_from_cube();
+    });
+
+    let app = shared.clone();
+    dom::on_id::<web_sys::Event, _>("editor-letters-form", "submit", move |e| {
+        e.prevent_default();
+        let text = dom::input("editor-letters").value();
+        app.borrow_mut().editor_letters(&text);
+    });
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("editor-apply", "click", move |_| {
+        app.borrow_mut().editor_apply();
+    });
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("editor-close", "click", move |_| {
+        app.borrow_mut().editor_close();
     });
 
     let app = shared.clone();
@@ -336,7 +440,12 @@ fn wire(shared: &Shared) {
         let Some(target) = e.target() else { return };
         let element: web_sys::Element = target.unchecked_into();
         if let Some(key) = element.get_attribute("data-facelet") {
-            app.borrow_mut().toggle_facelet(&key);
+            let mut state = app.borrow_mut();
+            if state.editing {
+                state.editor_point(&key);
+            } else {
+                state.toggle_facelet(&key);
+            }
         }
     });
 
@@ -367,7 +476,9 @@ fn wire(shared: &Shared) {
         let svg = dom::by_id("view-3d");
         let _ = svg.set_pointer_capture(e.pointer_id());
         let _ = svg.class_list().add_1("dragging");
-        app.borrow_mut().drag = Some((e.client_x() as f64, e.client_y() as f64));
+        let mut state = app.borrow_mut();
+        state.drag = Some((e.client_x() as f64, e.client_y() as f64));
+        state.dragged = false;
     });
 
     let app = shared.clone();
@@ -376,6 +487,10 @@ fn wire(shared: &Shared) {
         let Some((x, y)) = app.drag else { return };
         let (dx, dy) = (e.client_x() as f64 - x, e.client_y() as f64 - y);
         app.drag = Some((e.client_x() as f64, e.client_y() as f64));
+        // A couple of pixels is a tap with a shaky hand, not a turn.
+        if dx.abs() + dy.abs() > 3.0 {
+            app.dragged = true;
+        }
         app.cam.yaw -= dx * 0.45;
         app.cam.pitch += dy * 0.40;
         app.cam = app.cam.clamped();

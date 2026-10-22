@@ -5,6 +5,7 @@
 //! specific to the 3x3.
 
 pub mod cube;
+pub mod entry;
 pub mod export;
 pub mod geom;
 pub mod moves;
@@ -17,6 +18,7 @@ pub mod scramble;
 pub mod solver;
 
 pub use cube::Cube;
+pub use entry::Editor;
 pub use geom::{Axis, Face};
 pub use moves::{Move, Turn};
 pub use notation::{ParseError, parse};

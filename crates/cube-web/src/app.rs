@@ -1,11 +1,13 @@
 //! The application state and everything it draws.
 
 use crate::dom;
+use crate::editor;
+use cube_core::entry::Editor as Entry;
 use cube_core::export::{self, ease};
 use cube_core::geom::{Face, facelet_from_label, facelet_label};
 use cube_core::moves::Move;
 use cube_core::notation;
-use cube_core::palette::{Palette, STANDARD};
+use cube_core::palette::{Palette, Rgb, STANDARD};
 use cube_core::render::cube3d::{self, Anim, CAMERA_PRESETS, Camera, Style3d};
 use cube_core::render::net::{self, NetStyle};
 use cube_core::render::{Highlights, Marks};
@@ -13,6 +15,13 @@ use cube_core::scramble::{Rng, scramble};
 use cube_core::solver::search::Limits;
 use cube_core::solver::{Kociemba, SolveError};
 use cube_core::{Cube, Permutation, Turn};
+
+/// A sticker the editor has not been given a color for yet.
+///
+/// Dark on purpose. White is one of the cube's own six colors, so a pale
+/// blank reads as a white sticker rather than as an empty socket, and the
+/// one thing the twin view has to show is which stickers are still missing.
+const UNSET: Rgb = Rgb::from_hex(0x4b4b57);
 
 /// A turn being drawn, between two states.
 #[derive(Clone, Copy)]
@@ -46,6 +55,16 @@ pub struct App {
     pub export_flat: bool,
     pub export_bg: bool,
     pub export_steps: usize,
+    /// The cube being typed in, while the editor is open.
+    pub entry: Entry,
+    /// Whether the editor has the views: both of them show what is being
+    /// entered rather than the state on the table.
+    pub editing: bool,
+    /// The sticker picked in a view, waiting for a color.
+    pub entry_pick: Option<(Face, u8, u8)>,
+    /// Set while a drag turns the camera, so letting go does not also count
+    /// as a click on whatever sticker ended up under the pointer.
+    pub dragged: bool,
     /// Built on the first solve and kept: the tables cost a moment.
     solver: Option<Kociemba>,
     /// Where phase 1 ends, when the maneuver came from the solver.
@@ -77,6 +96,10 @@ impl App {
             export_flat: false,
             export_bg: true,
             export_steps: 8,
+            entry: Entry::new(),
+            editing: false,
+            entry_pick: None,
+            dragged: false,
             solver: None,
             phase_split: None,
         }
@@ -87,7 +110,7 @@ impl App {
     pub fn render(&self) {
         self.render_3d(None);
         self.render_state();
-        self.render_chips();
+        self.render_solution();
         self.render_transport();
     }
 
@@ -103,29 +126,52 @@ impl App {
     }
 
     pub fn render_3d(&self, anim: Option<Anim>) {
+        let (cube, pal, marks) = self.shown();
         dom::set_html(
             "view-3d",
-            &cube3d::inner(
-                &self.cube,
-                &self.cam,
-                anim.as_ref(),
-                &self.style,
-                &self.palette,
-                &self.marks(),
-            ),
+            &cube3d::inner(&cube, &self.cam, anim.as_ref(), &self.style, &pal, &marks),
         );
+    }
+
+    /// What the two views draw: the state on the table, or, while the editor
+    /// is open, the cube as far as it has been entered.
+    ///
+    /// A part-entered cube is not a `Cube` -- it has holes in it -- so it is
+    /// drawn as a blank cube with the decided stickers painted on, which is
+    /// what `Marks` is for. Both views take the same treatment, so the flat
+    /// grid, the net and the cube in three dimensions always agree.
+    fn shown(&self) -> (Cube, Palette, Marks) {
+        if !self.editing {
+            return (self.cube.clone(), self.palette, self.marks());
+        }
+        let mut marks = Marks::new();
+        for face in Face::ALL {
+            for row in 0..3 {
+                for col in 0..3 {
+                    if let Some(color) = self.entry.get((face, row, col)) {
+                        marks.paint((face, row, col), self.palette.face(color));
+                    }
+                }
+            }
+        }
+        if let Some(pick) = self.entry_pick {
+            marks.ring_at(pick, self.palette.highlight);
+        }
+        // The palette the decided stickers are painted from is the real one;
+        // only the ground under them is replaced.
+        let blank = Palette {
+            faces: [UNSET; 6],
+            ..self.palette
+        };
+        (Cube::solved(3), blank, marks)
     }
 
     pub fn render_net(&self) {
         let (w, h) = self.net.extent(self.n);
         let svg = dom::by_id("view-net");
         let _ = svg.set_attribute("viewBox", &format!("0 0 {w} {h}"));
-        svg.set_inner_html(&net::markup(
-            &self.cube,
-            &self.net,
-            &self.palette,
-            &self.marks(),
-        ));
+        let (cube, pal, marks) = self.shown();
+        svg.set_inner_html(&net::markup(&cube, &self.net, &pal, &marks));
     }
 
     /// The state as a permutation of the numbered facelets, before the
@@ -226,29 +272,64 @@ impl App {
         )
     }
 
-    fn render_chips(&self) {
-        let mut html = String::new();
-        for (i, m) in self.moves.iter().enumerate() {
-            let mut class = match i.cmp(&self.cursor) {
-                core::cmp::Ordering::Less => "done".to_string(),
-                core::cmp::Ordering::Equal => "current".to_string(),
-                core::cmp::Ordering::Greater => String::new(),
-            };
-            if self.phase_split == Some(i) {
-                class.push_str(" phase2");
-            }
-            let title = if self.phase_split == Some(i) {
-                "phase 2 starts here"
-            } else {
-                "jump here"
-            };
-            html.push_str(&format!(
-                "<li class=\"{class}\" data-step=\"{}\" title=\"{title}\">{}</li>",
-                i + 1,
-                html_escape(&m.name)
-            ));
-        }
-        dom::set_html("chips", &html);
+    /// The solution, with the move about to be played marked in whichever
+    /// phase it belongs to.
+    ///
+    /// The two phases are the whole display: a solution already reads as a
+    /// line of moves, so marking how far the stepper has got inside that
+    /// line puts the answer where the reader is already looking, and keeps
+    /// the move in the phase that explains what it is doing.
+    fn render_solution(&self) {
+        let Some(split) = self.phase_split else {
+            dom::set_html("solution", "");
+            return;
+        };
+        let (first, second) = self.moves.split_at(split.min(self.moves.len()));
+        dom::set_html(
+            "solution",
+            &format!(
+                "{}{}",
+                self.phase_row(
+                    "phase 1",
+                    first,
+                    0,
+                    "into \u{27e8}U, D, R2, L2, F2, B2\u{27e9}",
+                ),
+                self.phase_row("phase 2", second, split, "inside it, to the solved cube"),
+            ),
+        );
+    }
+
+    /// One phase, each move a step the reader can jump to. `offset` is where
+    /// this phase starts in the whole maneuver, which is what turns a move's
+    /// place in the phase into its place in the stepper.
+    fn phase_row(&self, label: &str, moves: &[Move], offset: usize, what: &str) -> String {
+        let text = if moves.is_empty() {
+            "<span class=\"move-none\">nothing to do</span>".to_string()
+        } else {
+            moves
+                .iter()
+                .enumerate()
+                .map(|(i, m)| {
+                    let step = offset + i;
+                    let class = match step.cmp(&self.cursor) {
+                        core::cmp::Ordering::Less => "move done",
+                        core::cmp::Ordering::Equal => "move current",
+                        core::cmp::Ordering::Greater => "move",
+                    };
+                    format!(
+                        "<span class=\"{class}\" data-step=\"{}\" title=\"jump here\">{}</span>",
+                        step + 1,
+                        html_escape(&m.name)
+                    )
+                })
+                .collect()
+        };
+        format!(
+            "<div class=\"perm-row\"><dt>{label}</dt><dd><code>{text}</code>\
+             <span class=\"perm-stat\">{} moves \u{b7} {what}</span></dd></div>",
+            moves.len()
+        )
     }
 
     fn render_transport(&self) {
@@ -265,6 +346,7 @@ impl App {
             ("to-end", self.cursor < self.moves.len()),
             ("play", !self.moves.is_empty()),
             ("solve", self.n == 3),
+            ("edit", self.n == 3),
         ] {
             let el: web_sys::HtmlButtonElement =
                 wasm_bindgen::JsCast::unchecked_into(dom::by_id(id));
@@ -323,6 +405,9 @@ impl App {
 
     /// Start again with a different cube size.
     pub fn resize(&mut self, n: u8) {
+        if n != 3 {
+            self.editor_close();
+        }
         self.n = n;
         self.moves.clear();
         self.cursor = 0;
@@ -414,7 +499,7 @@ impl App {
         self.running = None;
         if self.playing && self.begin(true, now) {
             self.render_state();
-            self.render_chips();
+            self.render_solution();
             self.render_transport();
             return true;
         }
@@ -476,24 +561,17 @@ impl App {
         let moves = solution.moves();
         let text = notation::format(&moves);
         dom::input("sequence").set_value(&text);
+        // A maneuver is read against the canonical view the net is drawn
+        // from, and the cube may have been turned to any angle while it was
+        // being entered, so the camera goes back to it.
+        self.cam = Camera::default();
+        dom::select("preset").set_selected_index(0);
         self.base = self.cube.clone();
         self.moves = moves;
         self.cursor = 0;
         self.playing = false;
         self.running = None;
         self.phase_split = Some(solution.phase1.len());
-        dom::set_html(
-            "solution",
-            &format!(
-                "{}{}",
-                phase_row(
-                    "phase 1",
-                    &solution.phase1,
-                    "into \u{27e8}U, D, R2, L2, F2, B2\u{27e9}",
-                ),
-                phase_row("phase 2", &solution.phase2, "inside it, to the solved cube"),
-            ),
-        );
         self.render();
         self.say(
             &format!(
@@ -561,6 +639,189 @@ impl App {
             .collect::<Vec<_>>()
             .join(",");
         dom::input("highlight").set_value(&text);
+    }
+
+    // ----- the editor ----------------------------------------------------
+
+    pub fn render_editor(&self) {
+        editor::render(&self.entry, &self.palette, self.entry_pick);
+        editor::render_pick(&self.entry, &self.palette, self.entry_pick);
+        self.render_3d(None);
+        self.render_net();
+        dom::input("editor-letters").set_value(
+            &self
+                .entry
+                .cube()
+                .map(|c| c.to_letters())
+                .unwrap_or_default(),
+        );
+    }
+
+    /// Open the editor on a blank cube: six centers and nothing else, which
+    /// is what entering a cube means. Starting from the state already on the
+    /// table is the other button.
+    pub fn editor_open(&mut self) {
+        self.entry = Entry::new();
+        self.editing = true;
+        self.entry_pick = None;
+        let _ = dom::body().class_list().add_1("editing");
+        let _ = dom::by_id("editor").remove_attribute("hidden");
+        dom::reparent("fig-3d", "editor-stage");
+        self.render_editor();
+        self.say(
+            "Blank cube: 48 facelets to go, 36 of them worth asking about.",
+            false,
+        );
+    }
+
+    /// Carry on from the state on the table rather than from nothing.
+    pub fn editor_from_cube(&mut self) {
+        self.entry = Entry::from_cube(&self.cube);
+        self.editing = true;
+        self.entry_pick = None;
+        let _ = dom::body().class_list().add_1("editing");
+        let _ = dom::by_id("editor").remove_attribute("hidden");
+        dom::reparent("fig-3d", "editor-stage");
+        self.render_editor();
+        self.say("Editing the cube on the table.", false);
+    }
+
+    pub fn editor_close(&mut self) {
+        self.editing = false;
+        self.entry_pick = None;
+        let _ = dom::body().class_list().remove_1("editing");
+        dom::reparent_first("fig-3d", "views");
+        let _ = dom::by_id("editor").set_attribute("hidden", "");
+        let _ = dom::by_id("editor-pick").set_attribute("hidden", "");
+        self.render();
+        self.report_state();
+    }
+
+    /// Pick a sticker in either view, to give it a color from the strip
+    /// under the cube. The two views and the grid stay the same cube, so a
+    /// sticker can be reached whichever way round it is easier to see.
+    /// Open a facelet's menu, or shut it if it is the one already open.
+    pub fn editor_toggle_point(&mut self, key: &str) {
+        let Some(facelet) = parse_facelet(key) else {
+            return;
+        };
+        if self.entry_pick == Some(facelet) {
+            self.editor_unpoint();
+        } else {
+            self.editor_point(key);
+        }
+    }
+
+    pub fn editor_unpoint(&mut self) {
+        self.entry_pick = None;
+        self.render_editor();
+    }
+
+    pub fn editor_point(&mut self, key: &str) {
+        let Some(facelet) = parse_facelet(key) else {
+            return;
+        };
+        self.entry_pick = Some(facelet);
+        self.render_editor();
+    }
+
+    /// Start from nothing but the six centers.
+    pub fn editor_clear(&mut self) {
+        self.entry.clear();
+        self.render_editor();
+        self.say(
+            "Blank cube: 48 facelets to go, 36 of them worth asking about.",
+            false,
+        );
+    }
+
+    /// One facelet chosen, then everything that follows from it.
+    ///
+    /// An empty color takes the sticker back, and takes its cubie with it:
+    /// a sticker whose neighbours are still entered is named by them and
+    /// could only ever be given back the color it had.
+    ///
+    /// Nothing is settled after a take-back. Settling is what would undo it,
+    /// since with nineteen pieces placed the twentieth has nowhere else to
+    /// go; leaving it alone is what lets a second piece be freed and the two
+    /// of them swapped.
+    pub fn editor_set(&mut self, key: &str, letter: &str) {
+        let Some(facelet) = parse_facelet(key) else {
+            return;
+        };
+        self.entry_pick = None;
+        let Some(color) = letter.chars().next().and_then(Face::from_letter) else {
+            self.entry.clear_cubie(facelet);
+            self.render_editor();
+            self.say(
+                "Taken back, with the rest of its piece. Free another piece to \
+                 swap the two of them.",
+                false,
+            );
+            return;
+        };
+        self.entry.choose(facelet, color);
+        let settled = self.entry.settle();
+        self.render_editor();
+        if settled > 0 {
+            self.say(
+                &format!(
+                    "{settled} more facelet{} followed from that.",
+                    if settled == 1 { "" } else { "s" }
+                ),
+                false,
+            );
+        }
+    }
+
+    /// Read a whole state from the letters, the format `?state=` carries.
+    pub fn editor_letters(&mut self, text: &str) {
+        let text: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        let Some(cube) = Cube::from_letters(3, &text) else {
+            self.say(
+                &format!(
+                    "That is {} letters of U L F R B D; a 3x3 wants 54.",
+                    text.chars().count()
+                ),
+                true,
+            );
+            return;
+        };
+        self.entry = Entry::from_cube(&cube);
+        self.render_editor();
+        self.say("Letters read.", false);
+    }
+
+    /// Put the typed cube on the table.
+    pub fn editor_apply(&mut self) {
+        let Some(cube) = self.entry.cube() else {
+            self.say("Not every facelet has a color yet.", true);
+            return;
+        };
+        self.set_state(cube);
+        self.editor_close();
+        self.report_colors();
+    }
+
+    /// What the colors on the cube amount to: a complaint if they are not a
+    /// state, and the usual report if they are.
+    pub fn report_colors(&self) {
+        if self.n == 3
+            && let Err(flaw) = cube_core::solver::check(&self.cube)
+        {
+            let message = match flaw {
+                cube_core::solver::Flaw::Pieces => {
+                    "Some piece shows a pair of colors no cubie has."
+                }
+                cube_core::solver::Flaw::Parity => {
+                    "Real pieces, but no sequence of turns reaches them: one is \
+                     swapped, flipped or twisted on its own."
+                }
+            };
+            self.say(message, true);
+            return;
+        }
+        self.report_state();
     }
 
     // ----- exports -------------------------------------------------------
@@ -682,20 +943,6 @@ impl App {
         parts.push("embed=1".to_string());
         parts.join("&")
     }
-}
-
-/// One phase of a solution, written out.
-fn phase_row(label: &str, moves: &[cube_core::Move], what: &str) -> String {
-    let text = if moves.is_empty() {
-        "nothing to do".to_string()
-    } else {
-        html_escape(&notation::format(moves))
-    };
-    format!(
-        "<div class=\"perm-row\"><dt>{label}</dt><dd><code>{text}</code>\
-         <span class=\"perm-stat\">{} moves \u{b7} {what}</span></dd></div>",
-        moves.len()
-    )
 }
 
 fn encode(s: &str) -> String {
