@@ -14,6 +14,7 @@ pub mod palette;
 pub mod permutation;
 pub mod pieces;
 pub mod render;
+pub mod scan;
 pub mod scramble;
 pub mod solver;
 
@@ -25,4 +26,5 @@ pub use notation::{ParseError, parse};
 pub use palette::{Palette, Rgb};
 pub use permutation::Permutation;
 pub use render::{Camera, Highlights, Marks, NetStyle, Style3d};
+pub use scan::Reading;
 pub use scramble::{Rng, scramble};

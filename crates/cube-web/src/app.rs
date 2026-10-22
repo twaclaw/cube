@@ -2,6 +2,7 @@
 
 use crate::dom;
 use crate::editor;
+use crate::scan::Scan;
 use cube_core::entry::Editor as Entry;
 use cube_core::export::{self, ease};
 use cube_core::geom::{Face, facelet_from_label, facelet_label};
@@ -57,6 +58,8 @@ pub struct App {
     pub export_steps: usize,
     /// The cube being typed in, while the editor is open.
     pub entry: Entry,
+    /// The camera, while it is reading a cube into the editor.
+    pub scan: Scan,
     /// Whether the editor has the views: both of them show what is being
     /// entered rather than the state on the table.
     pub editing: bool,
@@ -97,6 +100,7 @@ impl App {
             export_bg: true,
             export_steps: 8,
             entry: Entry::new(),
+            scan: Scan::new(),
             editing: false,
             entry_pick: None,
             dragged: false,
@@ -689,6 +693,9 @@ impl App {
     pub fn editor_close(&mut self) {
         self.editing = false;
         self.entry_pick = None;
+        if self.scan.is_open() {
+            self.scan.close();
+        }
         let _ = dom::body().class_list().remove_1("editing");
         dom::reparent_first("fig-3d", "views");
         let _ = dom::by_id("editor").set_attribute("hidden", "");
@@ -772,6 +779,46 @@ impl App {
                 false,
             );
         }
+    }
+
+    pub fn render_scan(&self) {
+        self.scan.render(&self.palette);
+    }
+
+    /// Hand the six captured faces to the editor.
+    ///
+    /// Not as a state to accept: as a proposal. A camera gets a sticker
+    /// wrong now and then, and one wrong sticker would make the whole
+    /// reading impossible, so the stickers it was sure of are offered first
+    /// and the doubtful ones only go in if they can still be true beside
+    /// them. Whatever is left over stays open, with its menu ready.
+    pub fn scan_apply(&mut self) {
+        let Some(samples) = self.scan.samples() else {
+            self.say("All six faces have to be captured first.", true);
+            return;
+        };
+        self.scan.close();
+        let reading = cube_core::scan::read(&samples);
+        let doubtful: Vec<_> = reading.unsure.clone();
+        let mut order: Vec<_> = all_facelets().filter(|f| !doubtful.contains(f)).collect();
+        order.extend(doubtful);
+        self.entry = Entry::new();
+        self.entry.absorb(&reading.cube, &order);
+        self.entry_pick = None;
+        self.render_editor();
+        let left = self.entry.undecided();
+        self.say(
+            &match left {
+                0 => "Read off the camera, whole. Check it and use it.".to_string(),
+                1 => {
+                    "Read off the camera. One sticker would not fit; its menu is open.".to_string()
+                }
+                n => format!(
+                    "Read off the camera. {n} stickers would not fit; their menus are open."
+                ),
+            },
+            false,
+        );
     }
 
     /// Read a whole state from the letters, the format `?state=` carries.
@@ -1010,4 +1057,9 @@ pub fn fill_presets() {
         html.push_str(&format!("<option>{name}</option>"));
     }
     dom::set_html("preset", &html);
+}
+
+/// Every facelet of a 3x3, in numbering order.
+fn all_facelets() -> impl Iterator<Item = (Face, u8, u8)> {
+    (0..54).map(|i| (Face::ALL[i / 9], ((i % 9) / 3) as u8, (i % 3) as u8))
 }

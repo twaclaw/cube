@@ -3,6 +3,7 @@
 mod app;
 mod dom;
 mod editor;
+mod scan;
 
 use app::App;
 use cube_core::Cube;
@@ -182,6 +183,39 @@ fn animate(shared: Shared) {
     }
 }
 
+/// How often the overlay is refreshed with what the camera is reading. Slow
+/// enough to cost nothing, quick enough to follow the cube as it is moved.
+const LIVE_MS: i32 = 120;
+
+/// Keep the overlay showing the colors under the grid while the camera is
+/// open. It stops itself when the camera is put down.
+fn live(shared: Shared) {
+    if !shared.borrow().scan.is_open() {
+        return;
+    }
+    shared.borrow().scan.tick();
+    dom::defer(LIVE_MS, move || live(shared));
+}
+
+/// Open the camera for the editor, or say why not.
+fn open_camera(shared: Shared) {
+    shared.borrow().say("Asking for the camera...", false);
+    wasm_bindgen_futures::spawn_local(async move {
+        match scan::request().await {
+            Ok(stream) => {
+                {
+                    let mut app = shared.borrow_mut();
+                    app.scan.open(stream);
+                    app.render_scan();
+                    app.say("Hold a face in the square and press capture.", false);
+                }
+                live(shared);
+            }
+            Err(message) => shared.borrow().say(&message, true),
+        }
+    });
+}
+
 /// The views that can be pinned, each with the figure it marks.
 const PINNABLE: [(&str, &str); 3] = [
     ("pin-3d", "fig-3d"),
@@ -347,6 +381,64 @@ fn wire(shared: &Shared) {
         if let Some((face, row, col)) = picked {
             let key = format!("{}-{row}-{col}", face.letter());
             app.borrow_mut().editor_set(&key, &color);
+        }
+    });
+
+    // the camera, which only exists while the editor is open
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("editor-camera", "click", move |_| {
+        if app.borrow().scan.is_open() {
+            app.borrow_mut().scan.close();
+            app.borrow().say("Camera put down.", false);
+        } else {
+            open_camera(app.clone());
+        }
+    });
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("scan-shoot", "click", move |_| {
+        let mut state = app.borrow_mut();
+        if state.scan.capture() {
+            state.render_scan();
+        } else {
+            state.say("The camera has not started yet.", true);
+        }
+    });
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("scan-rotate", "click", move |_| {
+        let mut state = app.borrow_mut();
+        if state.scan.rotate() {
+            state.render_scan();
+        } else {
+            state.say("Nothing to turn: that face has not been captured.", true);
+        }
+    });
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("scan-read", "click", move |_| app.borrow_mut().scan_apply());
+
+    let app = shared.clone();
+    dom::on_id::<MouseEvent, _>("scan-close", "click", move |_| {
+        app.borrow_mut().scan.close();
+        app.borrow().say("Camera put down.", false);
+    });
+
+    // Going back to a face already taken, to look at it again or turn it.
+    let app = shared.clone();
+    dom::on_id::<web_sys::Event, _>("scan-faces", "click", move |e| {
+        let Some(target) = e.target() else { return };
+        let element: web_sys::Element = target.unchecked_into();
+        let Ok(Some(button)) = element.closest("[data-face]") else {
+            return;
+        };
+        if let Some(k) = button
+            .get_attribute("data-face")
+            .and_then(|v| v.parse::<usize>().ok())
+        {
+            let mut state = app.borrow_mut();
+            state.scan.go_to(k);
+            state.render_scan();
         }
     });
 

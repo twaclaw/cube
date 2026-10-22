@@ -11,4 +11,5 @@ console_error_panic_hook = "0.1.7"
 cube-core.workspace = true
 js-sys = "0.3.106"
 wasm-bindgen = "0.2.129"
-web-sys = { version = "0.3.106", features = ["Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlSelectElement", "HtmlButtonElement", "HtmlAnchorElement", "HtmlTextAreaElement", "Event", "EventTarget", "MouseEvent", "WheelEvent", "KeyboardEvent", "PointerEvent", "Blob", "BlobPropertyBag", "Url", "Location", "UrlSearchParams", "Navigator", "Clipboard", "DomRect", "CssStyleDeclaration", "DomTokenList", "Performance", "DomStringMap", "console"] }
+wasm-bindgen-futures = "0.4.52"
+web-sys = { version = "0.3.106", features = ["Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "HtmlSelectElement", "HtmlButtonElement", "HtmlAnchorElement", "HtmlTextAreaElement", "Event", "EventTarget", "MouseEvent", "WheelEvent", "KeyboardEvent", "PointerEvent", "Blob", "BlobPropertyBag", "Url", "Location", "UrlSearchParams", "Navigator", "Clipboard", "DomRect", "CssStyleDeclaration", "DomTokenList", "Performance", "DomStringMap", "console", "MediaDevices", "MediaStream", "MediaStreamTrack", "MediaStreamConstraints", "MediaTrackConstraints", "HtmlVideoElement", "HtmlCanvasElement", "CanvasRenderingContext2d", "ImageData"] }

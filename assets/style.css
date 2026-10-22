@@ -528,3 +528,74 @@ body.hide-perm #fig-perm { display: none; }
 .pick-swatch.clear { width: auto; padding: .3rem .6rem; background: var(--panel); color: var(--soft); }
 /* While the editor is open a sticker is something to pick, not to drag. */
 .editing #view-3d [data-facelet] { cursor: pointer; }
+
+/* ── The camera, inside the editor ─────────────────────────────────────── */
+
+.scanner {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+  align-items: start;
+  width: 100%;
+  padding-top: .85rem;
+  border-top: 1px solid var(--line);
+}
+.scanner[hidden] { display: none; }
+
+@media (min-width: 780px) {
+  .scanner { grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); }
+}
+
+/* A square box, so the centred square of the frame is what the overlay draws
+   and what the sampler reads: `cover` crops the long side away. */
+.scan-stage {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #101014;
+}
+.scan-stage video { width: 100%; height: 100%; object-fit: cover; display: block; }
+#scan-grid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+.scan-side { display: grid; gap: .7rem; align-content: start; }
+.scan-prompt { margin: 0; font-size: 1.05rem; }
+.scan-count { margin: 0; color: var(--soft); font-size: .85rem; }
+
+/* The face being named, and the one that goes above it. */
+.swatch {
+  display: inline-block;
+  width: .85em;
+  height: .85em;
+  margin-right: .25em;
+  border: 1px solid rgba(16, 16, 20, .45);
+  border-radius: .25em;
+  vertical-align: -.08em;
+}
+
+.scan-faces { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.thumb { display: grid; gap: .3rem; justify-items: center; padding: .35rem; background: var(--bg); }
+.thumb.at { border-color: var(--accent); }
+.thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 11px);
+  grid-template-rows: repeat(3, 11px);
+  gap: 1px;
+}
+.thumb-grid i { border-radius: 2px; background: var(--line); }
+.thumb-name {
+  display: flex;
+  gap: .25em;
+  align-items: center;
+  color: var(--soft);
+  font-size: .75rem;
+  line-height: 1;
+}
+.thumb-name i {
+  width: .7em;
+  height: .7em;
+  border: 1px solid rgba(16, 16, 20, .45);
+  border-radius: .2em;
+}
+
+.scan-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }

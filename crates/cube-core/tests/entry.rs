@@ -273,3 +273,111 @@ proptest! {
         }
     }
 }
+
+/// Every facelet, most-trusted first: what a camera hands over.
+fn trusted_first(all: &[Facelet], doubtful: &[Facelet]) -> Vec<Facelet> {
+    let mut order: Vec<Facelet> = all
+        .iter()
+        .copied()
+        .filter(|f| !doubtful.contains(f))
+        .collect();
+    order.extend(doubtful.iter().copied());
+    order
+}
+
+#[test]
+fn absorbing_a_clean_reading_takes_all_of_it() {
+    for seed in 0..30u64 {
+        let (cube, _) = scrambled(3, 25, &mut Rng::new(seed));
+        let mut editor = Editor::new();
+        editor.absorb(&cube, &facelets());
+        assert_eq!(editor.cube().as_ref(), Some(&cube), "seed {seed}");
+        assert_eq!(editor.undecided(), 0);
+    }
+}
+
+#[test]
+fn absorbing_is_not_upset_by_the_order() {
+    let (cube, _) = scrambled(3, 25, &mut Rng::new(4));
+    let mut backwards: Vec<Facelet> = facelets();
+    backwards.reverse();
+    let mut editor = Editor::new();
+    editor.absorb(&cube, &backwards);
+    assert_eq!(editor.cube(), Some(cube));
+}
+
+#[test]
+fn a_misread_sticker_leaves_a_hole_rather_than_a_wreck() {
+    // One sticker read wrong makes the whole proposal impossible. Offered
+    // doubtful-last, the good ones still go in and the bad one is dropped,
+    // which is a cube to correct rather than a reading to throw away.
+    let (cube, _) = scrambled(3, 25, &mut Rng::new(11));
+    let spoiled_at = (Face::F, 0, 0);
+    let mut spoiled = cube.clone();
+    let wrong = Face::ALL
+        .into_iter()
+        .find(|f| *f != cube.get(Face::F, 0, 0))
+        .expect("another color");
+    spoiled.set(Face::F, 0, 0, wrong);
+    assert!(
+        solver::check(&spoiled).is_err(),
+        "the spoiled reading is not a cube"
+    );
+
+    let mut editor = Editor::new();
+    editor.absorb(&spoiled, &trusted_first(&facelets(), &[spoiled_at]));
+
+    assert!(
+        editor.is_possible(),
+        "what was taken has to still be finishable"
+    );
+    assert_ne!(
+        editor.get(spoiled_at),
+        Some(wrong),
+        "the misread sticker must not have been taken as read"
+    );
+    // Everything it did take is what the real cube has there.
+    for facelet in facelets() {
+        if let Some(color) = editor.get(facelet) {
+            assert_eq!(
+                color,
+                cube.get(facelet.0, facelet.1, facelet.2),
+                "at {facelet:?}"
+            );
+        }
+    }
+}
+
+proptest! {
+    /// Whatever a camera reports, absorbing it leaves a cube that can still
+    /// be finished by hand: the editor never inherits an impossible state.
+    #[test]
+    fn absorbing_anything_leaves_something_finishable(seed in any::<u64>()) {
+        let mut rng = Rng::new(seed);
+        // A reading always carries nine of each colour, so build one that way.
+        let (base, _) = scrambled(3, 25, &mut Rng::new(seed ^ 0x5a5a));
+        let mut proposal = base.clone();
+        // Spoil it by swapping a few stickers around, keeping the counts.
+        for _ in 0..4 {
+            let a = facelets()[rng.below(54) as usize];
+            let b = facelets()[rng.below(54) as usize];
+            let (ca, cb) = (proposal.get(a.0, a.1, a.2), proposal.get(b.0, b.1, b.2));
+            proposal.set(a.0, a.1, a.2, cb);
+            proposal.set(b.0, b.1, b.2, ca);
+        }
+        let mut editor = Editor::new();
+        editor.absorb(&proposal, &facelets());
+        prop_assert!(editor.is_possible());
+        if editor.undecided() == 0 {
+            // Every piece is a real one: that much the matching guarantees.
+            // Parity is not its business -- it cannot be judged until the
+            // cube is whole -- so a finished absorb may still be a cube with
+            // one piece flipped, which is what the editor says when it sees
+            // it, and what taking a piece back is for.
+            prop_assert_ne!(
+                solver::check(&editor.cube().unwrap()),
+                Err(solver::Flaw::Pieces)
+            );
+        }
+    }
+}

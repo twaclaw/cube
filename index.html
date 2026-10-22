@@ -169,6 +169,34 @@
       </div>
     </div>
 
+    <section class="scanner" id="scanner" hidden>
+      <div class="scan-stage">
+        <video id="scan-video" playsinline muted autoplay
+               aria-label="the camera, with the face to capture inside the square"></video>
+        <svg id="scan-grid" viewBox="0 0 100 100" aria-hidden="true">
+          <g id="scan-lines"></g>
+          <g id="scan-marks"></g>
+        </svg>
+        <canvas id="scan-canvas" hidden></canvas>
+      </div>
+      <div class="scan-side">
+        <p class="scan-prompt" id="scan-prompt"></p>
+        <p class="scan-count" id="scan-count"></p>
+        <ol class="scan-faces" id="scan-faces" aria-label="the faces captured so far"></ol>
+        <div class="scan-actions">
+          <button type="button" id="scan-shoot" class="primary">capture</button>
+          <button type="button" id="scan-rotate"
+                  title="turn this shot a quarter turn clockwise">rotate</button>
+          <button type="button" id="scan-read" disabled>read into the editor</button>
+          <button type="button" id="scan-close" class="ghost">put the camera down</button>
+        </div>
+        <p class="form-hint">Fill the square with one face, held square to the camera
+          and out of direct glare. The dots show the colour being read in each cell.
+          Pick any face below to take it again or to turn it. What the camera reads
+          lands in the grid above, where anything it got wrong can be corrected.</p>
+      </div>
+    </section>
+
     <form id="editor-letters-form" autocomplete="off">
       <label for="editor-letters">as letters</label>
       <input type="text" id="editor-letters" spellcheck="false"
@@ -181,6 +209,8 @@
       <button type="button" id="editor-apply" class="primary" disabled>use this cube</button>
       <button type="button" id="editor-current">start from the current cube</button>
       <button type="button" id="editor-clear">blank</button>
+      <button type="button" id="editor-camera" class="tool"
+              title="read a real cube with the camera, into this editor">camera</button>
       <button type="button" id="editor-close" class="ghost">close</button>
     </div>
 
@@ -270,6 +300,17 @@
       be colored from the strip under the cube. The same cube, three ways of
       reaching it, so a sticker awkward to find on the flat grid can be
       turned to in three dimensions instead.</p>
+    <p>The editor's <strong>camera</strong> button reads a real cube through
+      the device camera, one face at a time: hold a face in the square and
+      press capture, six times. No sticker is decided on its own, which is how
+      red is told from orange under warm light -- the six centres name the
+      colours, every colour is carried by exactly nine stickers, and the
+      reading is the cheapest labelling that obeys both. What comes back is a
+      proposal rather than a verdict. It is offered to the editor in the order
+      the camera was sure of it, so the stickers it could see go in, any that
+      cannot be true beside them are dropped, and whatever is left over stays
+      open with its menu ready. A misread sticker is then a hole to fill
+      rather than a scan to start again.</p>
 
     <h2>Solving</h2>
     <p>The <strong>solve</strong> button runs Kociemba's two-phase algorithm,

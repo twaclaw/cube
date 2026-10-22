@@ -18,6 +18,19 @@ The app uses [trunk](https://trunk-rs.github.io/trunk/) to export to web assembl
 
 - **Different views, one state.** Different views of a cube state: 3d with zoom and rotation, unfolded, disjoin cycle notation.
 - **Moves.** Type a sequence and press enter to load it and execute it either in play or step mode.
+- **Enter a cube.** A cube editor: the state as the 54-letter string the rest
+  of the program speaks, or facelet by facelet on an unfolded grid. Each menu
+  offers only the colors that still leave a cube that can be finished, so the
+  grid cannot be painted into a dead end, and whatever follows from what you
+  entered is filled in. 36 facelets at worst, 33 on average, rather than 48.
+  While it is open the 3D view and the net show the cube as entered so far, and
+  a sticker can be picked in either of them and colored from the strip under
+  the cube.
+- **Camera.** Inside the editor, a button opens the camera and reads a real
+  cube, one face at a time. The reading is a proposal, not a verdict: the
+  stickers it was sure of go in first, a doubtful one only if it can still be
+  true beside them, and anything left over stays open with its menu ready. A
+  misread sticker is a hole to fill, not a scan to redo.
 - **Scramble / solved / solve.** One button for a random state, one for the
   solved cube, and one that solves it: Kociemba's two-phase algorithm, in about
   20 moves and a few milliseconds. 

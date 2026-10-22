@@ -211,6 +211,36 @@ impl Editor {
         }
     }
 
+    /// Take as much of a proposed cube as will fit, in the order given, and
+    /// settle whatever follows from it. Facelets the proposal cannot justify
+    /// are left open.
+    ///
+    /// This is how a reading off a camera becomes something to correct
+    /// rather than something to accept or throw away. A camera gets a
+    /// sticker wrong now and then, and one wrong sticker makes the whole
+    /// reading impossible; offered here in the order the camera was sure of
+    /// them, the stickers it could see go in, the ones that cannot be true
+    /// beside them are dropped, and what is left is a part-entered cube with
+    /// a menu on every hole.
+    ///
+    /// Returns how many of the proposed facelets were taken.
+    pub fn absorb(&mut self, cube: &Cube, order: &[Facelet]) -> usize {
+        let mut taken = 0;
+        for facelet in order {
+            if self.get(*facelet).is_some() {
+                continue;
+            }
+            let (face, row, col) = *facelet;
+            let color = cube.get(face, row, col);
+            if self.allowed(*facelet).contains(&color) {
+                self.set(*facelet, Some(color));
+                taken += 1;
+            }
+        }
+        self.settle();
+        taken
+    }
+
     /// The state, once every facelet has a color.
     pub fn cube(&self) -> Option<Cube> {
         let mut cube = Cube::solved(3);
