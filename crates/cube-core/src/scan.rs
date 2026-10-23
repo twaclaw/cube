@@ -10,7 +10,7 @@
 
 use crate::cube::Cube;
 use crate::geom::Face;
-use crate::palette::Rgb;
+use crate::palette::{Palette, Rgb};
 use crate::render::Facelet;
 
 /// Facelets of a 3x3.
@@ -84,6 +84,48 @@ pub fn read(samples: &Samples) -> Reading {
         }
     }
     Reading { cube, unsure }
+}
+
+/// Which face's color a single sample looks most like, and how far ahead of
+/// the runner-up it was.
+///
+/// Only a center is read this way. A center is a whole flat sticker in the
+/// middle of the frame, and there are just six well-separated colors to
+/// choose between, which is a far easier question than the one the other 48
+/// stickers pose -- and the only reason a center can be judged on its own at
+/// all. It is what tells a user they are holding up the wrong face.
+pub fn looks_like(sample: Rgb, pal: &Palette) -> (Face, f64) {
+    let seen = lab(sample);
+    let mut ranked: Vec<(Face, f64)> = Face::ALL
+        .into_iter()
+        .map(|face| (face, distance(seen, lab(pal.face(face)))))
+        .collect();
+    ranked.sort_by(|a, b| a.1.total_cmp(&b.1));
+    (ranked[0].0, ranked[1].1 - ranked[0].1)
+}
+
+/// How much worse than the best alternative the expected color may look
+/// before a center is called the wrong face.
+///
+/// Generous on purpose. Under a strong cast a white center drifts toward
+/// yellow and a red one toward orange, far enough that at the extremes a
+/// right face can look worse than a wrong one, so no threshold tells them
+/// apart perfectly. Of the two mistakes, blocking someone who is holding up
+/// the right face is much the worse: a wrong face that slips through only
+/// becomes holes in the editor, which is what the editor is for.
+const WRONG_FACE: f64 = 20.0;
+
+/// Whether a center could be this face's color, allowing for the light it
+/// was shot in.
+pub fn could_be(sample: Rgb, face: Face, pal: &Palette) -> bool {
+    let seen = lab(sample);
+    let expected = distance(seen, lab(pal.face(face)));
+    let best_other = Face::ALL
+        .into_iter()
+        .filter(|f| *f != face)
+        .map(|f| distance(seen, lab(pal.face(f))))
+        .fold(f64::INFINITY, f64::min);
+    expected - best_other <= WRONG_FACE
 }
 
 /// Which sample names the color of face `f`.

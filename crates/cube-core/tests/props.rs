@@ -356,3 +356,56 @@ fn cubies_are_named_and_found_again() {
     assert_eq!(pieces::named(3, "RFU"), pieces::named(3, "UFR"));
     assert_eq!(pieces::slots(5).len(), 5 * 5 * 5 - 3 * 3 * 3);
 }
+
+#[test]
+fn every_face_has_a_neighbour_above_it() {
+    use cube_core::geom::above;
+    // The net's layout, read back off the geometry rather than written out.
+    assert_eq!(above(Face::F), Face::U);
+    assert_eq!(above(Face::U), Face::B);
+    assert_eq!(above(Face::D), Face::F);
+    for face in Face::ALL {
+        let over = above(face);
+        assert_ne!(over, face);
+        assert_ne!(
+            over.normal(),
+            face.normal().scale(-1),
+            "never the opposite face"
+        );
+    }
+}
+
+#[test]
+fn holding_a_face_to_the_camera_turns_the_whole_cube() {
+    use cube_core::geom::{above, facing};
+    for face in Face::ALL {
+        let at = facing(face);
+        // The face asked for is the one square to the viewer, and the one
+        // the prompt names is on top: that is the whole instruction.
+        assert_eq!(
+            at[Face::F as usize],
+            face,
+            "{face:?} should face the camera"
+        );
+        assert_eq!(
+            at[Face::U as usize],
+            above(face),
+            "{face:?}'s neighbour on top"
+        );
+        // It has to be a turn of the cube, not a reshuffle of its faces.
+        let mut seen: Vec<Face> = at.to_vec();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), 6, "{face:?}: every color used once");
+        for position in Face::ALL {
+            let opposite = Face::from_normal(position.normal().scale(-1)).expect("an opposite");
+            let here = at[position as usize];
+            let there = at[opposite as usize];
+            assert_eq!(
+                here.normal().scale(-1),
+                there.normal(),
+                "{face:?}: {here:?} and {there:?} must stay opposite"
+            );
+        }
+    }
+}

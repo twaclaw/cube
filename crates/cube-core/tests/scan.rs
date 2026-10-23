@@ -133,3 +133,91 @@ proptest! {
         prop_assert!(Permutation::of(&reading.cube).is_some());
     }
 }
+
+#[test]
+fn a_center_names_its_own_face() {
+    // The six colors are far enough apart that one flat sticker in the middle
+    // of the frame can be read on its own, which is how a capture can tell
+    // the user they are holding up the wrong face.
+    for face in Face::ALL {
+        let (seen, margin) = scan::looks_like(STANDARD.face(face), &STANDARD);
+        assert_eq!(seen, face);
+        assert!(
+            margin > 10.0,
+            "{face:?} was a close call: margin {margin:.1}"
+        );
+    }
+}
+
+/// Light a flat color the way a room does: a cast, and an exposure.
+fn lit(c: Rgb, balance: [f64; 3], gain: f64) -> Rgb {
+    let f = |v: u8, k: f64| ((v as f64) * gain * k).clamp(0.0, 255.0) as u8;
+    Rgb(f(c.0, balance[0]), f(c.1, balance[1]), f(c.2, balance[2]))
+}
+
+/// Casts and exposures a phone indoors actually produces.
+const LIGHTS: [[f64; 3]; 4] = [
+    [1.0, 1.0, 1.0],
+    [1.15, 1.0, 0.8],
+    [1.3, 1.0, 0.68],
+    [0.78, 1.0, 1.3],
+];
+const GAINS: [f64; 5] = [0.6, 0.75, 1.0, 1.2, 1.4];
+
+#[test]
+fn the_right_face_is_never_turned_away() {
+    // The check must not block someone holding up the face it asked for,
+    // whatever the room is doing to the color.
+    for balance in LIGHTS {
+        for gain in GAINS {
+            for face in Face::ALL {
+                let shot = lit(STANDARD.face(face), balance, gain);
+                assert!(
+                    scan::could_be(shot, face, &STANDARD),
+                    "{face:?} turned away under {balance:?} at gain {gain}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_different_face_is_caught() {
+    // Holding up the wrong face is the mistake worth catching: the colors
+    // that get confused under a cast are neighbours, so count how many of
+    // the thirty wrong pairs are seen through under ordinary light.
+    let mut caught = 0;
+    let mut total = 0;
+    for face in Face::ALL {
+        for shown in Face::ALL {
+            if shown == face {
+                continue;
+            }
+            total += 1;
+            let shot = lit(STANDARD.face(shown), LIGHTS[1], 1.0);
+            if !scan::could_be(shot, face, &STANDARD) {
+                caught += 1;
+            }
+        }
+    }
+    println!("caught {caught} of {total} wrong faces under a warm light");
+    assert!(caught * 4 >= total * 3, "only {caught} of {total} caught");
+}
+
+#[test]
+fn a_center_survives_the_light_it_is_shot_in() {
+    let camera = Camera {
+        balance: [1.1, 1.0, 0.88],
+        exposure: [1.0, 0.85, 0.95, 1.1, 0.9, 1.05],
+        noise: 12.0,
+    };
+    let mut rng = Rng::new(31);
+    for face in Face::ALL {
+        let painted: Samples = core::array::from_fn(|_| STANDARD.face(face));
+        let shot = camera.shoot(&painted, &mut rng);
+        // Every sample of that face, under every one of the six exposures.
+        for sample in shot {
+            assert_eq!(scan::looks_like(sample, &STANDARD).0, face);
+        }
+    }
+}

@@ -2,7 +2,7 @@
 
 use crate::dom;
 use crate::editor;
-use crate::scan::Scan;
+use crate::scan::{Scan, Shot};
 use cube_core::entry::Editor as Entry;
 use cube_core::export::{self, ease};
 use cube_core::geom::{Face, facelet_from_label, facelet_label};
@@ -649,7 +649,6 @@ impl App {
 
     pub fn render_editor(&self) {
         editor::render(&self.entry, &self.palette, self.entry_pick);
-        editor::render_pick(&self.entry, &self.palette, self.entry_pick);
         self.render_3d(None);
         self.render_net();
         dom::input("editor-letters").set_value(
@@ -699,7 +698,6 @@ impl App {
         let _ = dom::body().class_list().remove_1("editing");
         dom::reparent_first("fig-3d", "views");
         let _ = dom::by_id("editor").set_attribute("hidden", "");
-        let _ = dom::by_id("editor-pick").set_attribute("hidden", "");
         self.render();
         self.report_state();
     }
@@ -779,6 +777,37 @@ impl App {
                 false,
             );
         }
+    }
+
+    /// Take one shot, unless the face on show is not the one asked for.
+    pub fn scan_capture(&mut self) {
+        match self.scan.capture(&self.palette) {
+            Shot::Taken => {
+                self.render_scan();
+                self.report_capture();
+            }
+            Shot::NotReady => self.say("The camera has not started yet.", true),
+            Shot::WrongFace { wanted, looks_like } => self.say(
+                &format!(
+                    "That looks like the {} face, not {}. Turn the cube and try again.",
+                    looks_like.letter(),
+                    wanted.letter()
+                ),
+                true,
+            ),
+        }
+    }
+
+    fn report_capture(&self) {
+        let left = 6 - self.scan.taken();
+        self.say(
+            &match left {
+                0 => "All six faces taken. Read them into the editor.".to_string(),
+                1 => "One face to go.".to_string(),
+                n => format!("{n} faces to go."),
+            },
+            false,
+        );
     }
 
     pub fn render_scan(&self) {

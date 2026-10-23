@@ -24,10 +24,12 @@ The app uses [trunk](https://trunk-rs.github.io/trunk/) to export to web assembl
   grid cannot be painted into a dead end, and whatever follows from what you
   entered is filled in. 36 facelets at worst, 33 on average, rather than 48.
   While it is open the 3D view and the net show the cube as entered so far, and
-  a sticker can be picked in either of them and colored from the strip under
-  the cube.
+  a sticker can be picked in any of the three and colored from the strip under
+  the grid.
 - **Camera.** Inside the editor, a button opens the camera and reads a real
-  cube, one face at a time. The reading is a proposal, not a verdict: the
+  cube, one face at a time, each shot shown as a diagram of how to hold it. A
+  face whose centre is not the colour asked for is refused rather than filed
+  under the wrong name. The reading is a proposal, not a verdict: the
   stickers it was sure of go in first, a doubtful one only if it can still be
   true beside them, and anything left over stays open with its menu ready. A
   misread sticker is a hole to fill, not a scan to redo.

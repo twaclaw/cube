@@ -456,40 +456,24 @@ body.hide-perm #fig-perm { display: none; }
 /* An empty facelet reads as a hole, not as a white sticker. */
 .editor-grid .cell.empty { border-style: dashed; border-color: var(--soft); color: var(--soft); }
 
-/* The menu for one facelet, hung under its cell. Drawn here rather than left
-   to a native <select>, which on macOS discards an option's colors. */
-.cell-menu {
-  position: absolute;
-  z-index: 10;
+.swatch-none { color: var(--soft); font-size: .8rem; padding: .35rem; }
+
+/* The colours for the picked sticker, always in the same place under the
+   grid: a menu floating over the grid would cover the cells beneath it and
+   swallow clicks meant for them. */
+.editor-menu {
   display: flex;
   flex-wrap: wrap;
-  gap: .25rem;
-  max-width: 14rem;
-  margin-top: .3rem;
-  padding: .35rem;
-  background: var(--panel);
+  gap: .35rem;
+  align-items: center;
+  min-height: 2.4rem;
+  margin-top: .6rem;
+  padding: .4rem;
+  background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: var(--shadow);
 }
-.cell-menu .swatch {
-  width: 2rem;
-  padding: .35rem 0;
-  border: 1px solid rgba(16, 16, 20, .45);
-  border-radius: 6px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .8rem;
-  font-weight: 600;
-}
-.cell-menu .swatch:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
-.cell-menu .swatch.clear {
-  width: auto;
-  padding: .35rem .6rem;
-  background: var(--panel);
-  color: var(--soft);
-  border-color: var(--line);
-}
-.swatch-none { color: var(--soft); font-size: .8rem; padding: .35rem; }
+.editor-grid .cell.picked { outline: 2px solid var(--highlight-ring, #d10a6e); outline-offset: 1px; }
 
 #editor-letters-form { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 #editor-letters-form label { color: var(--soft); font-size: .85rem; }
@@ -559,6 +543,12 @@ body.hide-perm #fig-perm { display: none; }
 #scan-grid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 .scan-side { display: grid; gap: .7rem; align-content: start; }
+
+/* The cube as it has to be held, beside the words that say so. The camera
+   in the drawing never moves; the cube turns, which is what the user does. */
+.scan-how { display: flex; gap: .75rem; align-items: center; }
+#scan-diagram { flex: none; width: 104px; height: 118px; }
+.scan-words { min-width: 0; display: grid; gap: .2rem; }
 .scan-prompt { margin: 0; font-size: 1.05rem; }
 .scan-count { margin: 0; color: var(--soft); font-size: .85rem; }
 
@@ -599,3 +589,34 @@ body.hide-perm #fig-perm { display: none; }
 }
 
 .scan-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+
+/* While the camera is open on a narrow screen, nothing else is wanted on it:
+   the viewfinder, the faces taken and the button have to fit together, since
+   a cube cannot be held still while the page is scrolled. */
+@media (max-width: 779px) {
+  body.capturing .page-head,
+  body.capturing .console,
+  body.capturing .views,
+  body.capturing .about,
+  body.capturing .editor-head,
+  body.capturing .editor-main,
+  body.capturing #editor-letters-form,
+  body.capturing .editor-actions,
+  body.capturing .editor > .form-hint,
+  body.capturing .scan-side .form-hint { display: none; }
+
+  body.capturing { padding-top: .5rem; }
+  body.capturing .editor { padding: .5rem; gap: .5rem; }
+  body.capturing .scanner { border-top: none; padding-top: 0; gap: .5rem; }
+  /* The viewfinder keeps its square, bounded so the rest still fits. */
+  body.capturing .scan-stage {
+    max-height: 44vh;
+    width: auto;
+    justify-self: center;
+  }
+  body.capturing .scan-how { gap: .5rem; }
+  body.capturing #scan-diagram { width: 86px; height: 98px; }
+  body.capturing .scan-prompt { font-size: .95rem; }
+  body.capturing .scan-actions { gap: .35rem; }
+  body.capturing .scan-actions button { padding: .45rem .7rem; }
+}

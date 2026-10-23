@@ -166,6 +166,8 @@
       <div class="editor-stage" id="editor-stage"></div>
       <div class="editor-board">
         <div class="editor-grid" id="editor-grid"></div>
+        <div class="editor-menu" id="editor-menu"
+             aria-label="the colours this sticker can take"></div>
       </div>
     </div>
 
@@ -180,8 +182,14 @@
         <canvas id="scan-canvas" hidden></canvas>
       </div>
       <div class="scan-side">
-        <p class="scan-prompt" id="scan-prompt"></p>
-        <p class="scan-count" id="scan-count"></p>
+        <div class="scan-how">
+          <svg id="scan-diagram" viewBox="0 0 300 342" role="img"
+               aria-label="how to hold the cube for this shot"></svg>
+          <div class="scan-words">
+            <p class="scan-prompt" id="scan-prompt"></p>
+            <p class="scan-count" id="scan-count"></p>
+          </div>
+        </div>
         <ol class="scan-faces" id="scan-faces" aria-label="the faces captured so far"></ol>
         <div class="scan-actions">
           <button type="button" id="scan-shoot" class="primary">capture</button>
@@ -235,7 +243,6 @@
         <label class="check pin"><input type="checkbox" id="pin-3d" aria-label="keep the cube in three dimensions in view"> keep in view</label>
         <span class="hint">drag to rotate</span>
       </figcaption>
-      <div class="pick" id="editor-pick" hidden aria-label="the colors this sticker can take"></div>
     </figure>
 
     <figure class="view" id="fig-net">
@@ -302,7 +309,11 @@
       turned to in three dimensions instead.</p>
     <p>The editor's <strong>camera</strong> button reads a real cube through
       the device camera, one face at a time: hold a face in the square and
-      press capture, six times. No sticker is decided on its own, which is how
+      press capture, six times, with a drawing of the cube
+      turned the way it has to be held for each shot; the camera in that
+      drawing never moves, which is the point. A face whose centre is not the
+      colour asked for is refused, so the faces cannot quietly go in under the
+      wrong names. No sticker is decided on its own, which is how
       red is told from orange under warm light -- the six centres name the
       colours, every colour is carried by exactly nine stickers, and the
       reading is the cheapest labelling that obeys both. What comes back is a

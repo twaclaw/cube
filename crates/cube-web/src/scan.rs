@@ -11,12 +11,34 @@
 //! afterwards.
 
 use crate::dom;
+use cube_core::Cube;
 use cube_core::Rgb;
-use cube_core::geom::Face;
+use cube_core::geom::{self, Face};
 use cube_core::palette::Palette;
-use cube_core::scan::Samples;
+use cube_core::render::Marks;
+use cube_core::render::cube3d::{self, Camera, Style3d};
+use cube_core::scan::{self as reading, Samples};
 use wasm_bindgen::prelude::*;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlVideoElement, MediaStream};
+
+/// A sticker with no color of its own, matching the editor's blank cube.
+const UNSET: Rgb = Rgb::from_hex(0x4b4b57);
+
+/// Where the diagram is looked at from. It never changes: the camera stays
+/// put and the cube turns, which is what the user has to do.
+const DIAGRAM_VIEW: Camera = Camera {
+    yaw: 18.0,
+    // Tipped a little further than the face needs, so the face that has to
+    // go on top is visible rather than merely named.
+    pitch: 26.0,
+    zoom: 0.98,
+};
+
+/// A camera, drawn below the cube, looking at the face on show.
+const CAMERA_GLYPH: &str = "<g fill=\"none\" stroke=\"#8a8a98\" stroke-width=\"3\" \
+     stroke-linejoin=\"round\"><path d=\"M150 272v20\" stroke-dasharray=\"5 6\"/>\
+     <path d=\"M124 300h52a6 6 0 0 1 6 6v22a6 6 0 0 1-6 6h-52a6 6 0 0 1-6-6v-22a6 6 0 0 1 6-6z\"/>\
+     <path d=\"M139 300l5-8h12l5 8\"/><circle cx=\"150\" cy=\"317\" r=\"9\"/></g>";
 
 /// Side of one grid cell on the small canvas each frame is drawn into.
 const CELL: u32 = 48;
@@ -32,6 +54,16 @@ const PATCH: f64 = 0.52;
 /// The faces in the order they are asked for, which is numbering order: the
 /// samples then land in the order [`cube_core::scan::read`] wants them.
 const ORDER: [Face; 6] = Face::ALL;
+
+/// What came of pressing the button.
+pub enum Shot {
+    /// Stored, and the prompt has moved on.
+    Taken,
+    /// The camera has not started yet.
+    NotReady,
+    /// The middle of the frame is not the color the prompt asked for.
+    WrongFace { wanted: Face, looks_like: Face },
+}
 
 pub struct Scan {
     stream: Option<MediaStream>,
@@ -62,6 +94,7 @@ impl Scan {
         video().set_src_object(Some(&stream));
         let _ = video().play();
         self.stream = Some(stream);
+        let _ = dom::body().class_list().add_1("capturing");
         let _ = dom::by_id("scanner").remove_attribute("hidden");
     }
 
@@ -70,6 +103,7 @@ impl Scan {
     pub fn close(&mut self) {
         self.stop_stream();
         video().set_src_object(None);
+        let _ = dom::body().class_list().remove_1("capturing");
         let _ = dom::by_id("scanner").set_attribute("hidden", "");
     }
 
@@ -119,16 +153,29 @@ impl Scan {
 
     /// Store the frame on screen as the face being asked for, and move on to
     /// the next one still wanted.
-    pub fn capture(&mut self) -> bool {
+    ///
+    /// The middle of the frame has to be the color the prompt asked for. A
+    /// center is one flat sticker between six well-separated colors, which is
+    /// the one sticker that can be judged on its own, and getting the faces
+    /// in the wrong order would otherwise quietly produce a cube that is not
+    /// the one on the table.
+    pub fn capture(&mut self, pal: &Palette) -> Shot {
         let Some(colors) = self.sample() else {
-            return false;
+            return Shot::NotReady;
         };
+        let wanted = ORDER[self.at];
+        if !reading::could_be(colors[4], wanted, pal) {
+            return Shot::WrongFace {
+                wanted,
+                looks_like: reading::looks_like(colors[4], pal).0,
+            };
+        }
         self.faces[self.at] = Some(colors);
         self.at = (self.at + 1..6)
             .chain(0..self.at)
             .find(|k| self.faces[*k].is_none())
             .unwrap_or(self.at);
-        true
+        Shot::Taken
     }
 
     /// Work on a different face, to take it again or turn it.
@@ -165,9 +212,38 @@ impl Scan {
 
     // ----- the panel -----------------------------------------------------
 
+    /// How to hold the cube for this shot: the cube turned so the face
+    /// wanted is square to a camera that never moves.
+    ///
+    /// Grey but for the centers, like the cube the editor draws, so it reads
+    /// as an instruction rather than as a cube someone has solved.
+    fn diagram(&self, pal: &Palette) -> String {
+        let at = geom::facing(ORDER[self.at]);
+        let mut marks = Marks::new();
+        for position in Face::ALL {
+            marks.paint((position, 1, 1), pal.face(at[position as usize]));
+        }
+        let blank = Palette {
+            faces: [UNSET; 6],
+            ..*pal
+        };
+        format!(
+            "{}{CAMERA_GLYPH}",
+            cube3d::inner(
+                &Cube::solved(3),
+                &DIAGRAM_VIEW,
+                None,
+                &Style3d::default(),
+                &blank,
+                &marks,
+            )
+        )
+    }
+
     /// The prompt, the grid over the video and the six thumbnails.
     pub fn render(&self, pal: &Palette) {
         let face = ORDER[self.at];
+        dom::set_html("scan-diagram", &self.diagram(pal));
         dom::set_html(
             "scan-prompt",
             &format!(

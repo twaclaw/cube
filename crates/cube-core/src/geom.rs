@@ -200,6 +200,40 @@ impl Face {
     }
 }
 
+/// The face drawn above this one in the net, which is also the face that
+/// should be uppermost when this one is held square to a camera.
+///
+/// The net puts a fixed neighbour above every face -- U above the side
+/// faces, B above U, F above D -- so naming it is all anyone needs to hold a
+/// cube the way the rest of the program reads it.
+pub fn above(f: Face) -> Face {
+    let up = f.down().scale(-1);
+    Face::ALL
+        .into_iter()
+        .find(|g| g.normal() == up)
+        .expect("every face has one above it")
+}
+
+/// Which face's color ends up at each position when the cube is turned to
+/// hold `face` square to the viewer with [`above`] uppermost.
+///
+/// Indexed by position, in `Face` order. This is the cube as it has to be
+/// held for one shot of a capture: the camera stays where it is and the cube
+/// turns, so a picture of this is a picture of what to do.
+pub fn facing(face: Face) -> [Face; 6] {
+    let front = face.normal();
+    let up = above(face).normal();
+    let right = up.cross(front);
+    let mut at = [Face::U; 6];
+    for color in Face::ALL {
+        let n = color.normal();
+        let turned = V3::new(n.dot(right), n.dot(up), n.dot(front));
+        let position = Face::from_normal(turned).expect("a turn maps faces to faces");
+        at[position as usize] = color;
+    }
+    at
+}
+
 /// Index of a facelet inside a flat `6 * n * n` sticker array.
 pub const fn facelet_index(n: u8, f: Face, row: u8, col: u8) -> usize {
     let n = n as usize;

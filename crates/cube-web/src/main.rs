@@ -371,7 +371,7 @@ fn wire(shared: &Shared) {
     });
 
     let app = shared.clone();
-    dom::on_id::<web_sys::Event, _>("editor-pick", "click", move |e| {
+    dom::on_id::<web_sys::Event, _>("editor-menu", "click", move |e| {
         let Some(target) = e.target() else { return };
         let element: web_sys::Element = target.unchecked_into();
         let Some(color) = element.get_attribute("data-color") else {
@@ -397,12 +397,7 @@ fn wire(shared: &Shared) {
 
     let app = shared.clone();
     dom::on_id::<MouseEvent, _>("scan-shoot", "click", move |_| {
-        let mut state = app.borrow_mut();
-        if state.scan.capture() {
-            state.render_scan();
-        } else {
-            state.say("The camera has not started yet.", true);
-        }
+        app.borrow_mut().scan_capture();
     });
 
     let app = shared.clone();

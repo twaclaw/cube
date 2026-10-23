@@ -27,29 +27,24 @@ const BLOCKS: [(Face, usize, usize); 6] = [
     (Face::D, 2, 1),
 ];
 
-/// Columns and rows of the unfolded grid: four faces across, three down.
-const COLUMNS: f64 = 12.0;
-const ROWS: f64 = 9.0;
-
-/// The unfolded cube, every facelet a button that opens its own menu.
+/// The unfolded cube, every facelet a button that picks it.
 ///
-/// The menu is drawn here rather than left to a `<select>`. An open native
-/// menu belongs to the platform, and macOS throws away an option's colors --
-/// which is most of what there is to say about a sticker. Drawn here, green
-/// looks green.
+/// The colors live in a strip under the grid rather than in a menu hung on
+/// the cell. A menu over the grid covers the cells beneath it, and the net
+/// leaves no free space under most of them, so a click meant for a covered
+/// cell lands on the menu instead and paints the wrong sticker. One strip,
+/// always in the same place, cannot do that -- and is easier to hit on a
+/// phone. The cell being worked on is ringed, so it is clear which one the
+/// strip belongs to.
 pub fn grid(entry: &Entry, pal: &Palette, pick: Option<Facelet>) -> String {
     let mut html = String::new();
     for (face, _, _) in BLOCKS {
         for row in 0..3u8 {
             for col in 0..3u8 {
-                html.push_str(&cell(entry, pal, (face, row, col)));
+                let facelet = (face, row, col);
+                html.push_str(&cell(entry, pal, facelet, pick == Some(facelet)));
             }
         }
-    }
-    if let Some(facelet) = pick
-        && !is_center(facelet)
-    {
-        html.push_str(&menu(entry, pal, facelet));
     }
     html
 }
@@ -70,7 +65,7 @@ fn seat_of((face, row, col): Facelet) -> (usize, usize) {
     )
 }
 
-fn cell(entry: &Entry, pal: &Palette, facelet: Facelet) -> String {
+fn cell(entry: &Entry, pal: &Palette, facelet: Facelet, picked: bool) -> String {
     let (face, r, c) = facelet;
     let (row, col) = seat_of(facelet);
     let chosen = entry.get(facelet);
@@ -103,6 +98,9 @@ fn cell(entry: &Entry, pal: &Palette, facelet: Facelet) -> String {
     if r == 2 {
         class.push_str(" face-foot");
     }
+    if picked {
+        class.push_str(" picked");
+    }
     format!(
         "<button type=\"button\" class=\"{class}\" data-facelet=\"{}-{r}-{c}\"{} \
          style=\"grid-area:{row}/{col};background:{fill};color:{ink}\" \
@@ -113,40 +111,6 @@ fn cell(entry: &Entry, pal: &Palette, facelet: Facelet) -> String {
         r + 1,
         c + 1,
     )
-}
-
-/// The menu for the picked facelet, hung under its cell.
-///
-/// Placed in the grid's own coordinates rather than measured off the page, so
-/// it stays with its cell when the panel is resized, and nothing has to be
-/// recomputed as the page scrolls.
-fn menu(entry: &Entry, pal: &Palette, facelet: Facelet) -> String {
-    let (row, col) = seat_of(facelet);
-    let allowed = entry.allowed(facelet);
-    let mut swatches = String::new();
-    for color in &allowed {
-        let rgb = pal.face(*color);
-        swatches.push_str(&format!(
-            "<button type=\"button\" class=\"swatch\" data-color=\"{letter}\" \
-             style=\"background:{};color:{}\" title=\"{letter}\">{letter}</button>",
-            rgb.hex(),
-            ink_for(rgb.luma()),
-            letter = color.letter(),
-        ));
-    }
-    if allowed.is_empty() {
-        swatches.push_str("<span class=\"swatch-none\">nothing fits here</span>");
-    }
-    if entry.get(facelet).is_some() {
-        swatches.push_str(
-            "<button type=\"button\" class=\"swatch clear\" data-color=\"\" \
-             title=\"take this sticker back, and the rest of its piece with it\">take back</button>",
-        );
-    }
-    // A menu opened near the right edge would otherwise run off it.
-    let left = (((col - 1) as f64 / COLUMNS) * 100.0).min(58.0);
-    let top = (row as f64 / ROWS) * 100.0;
-    format!("<div class=\"cell-menu\" style=\"left:{left:.2}%;top:{top:.2}%\">{swatches}</div>")
 }
 
 fn ink_for(luma: f64) -> String {
@@ -181,24 +145,24 @@ pub fn report(entry: &Entry) -> String {
 /// Put the editor's panel on the page.
 pub fn render(entry: &Entry, pal: &Palette, pick: Option<Facelet>) {
     dom::set_html("editor-grid", &grid(entry, pal, pick));
+    render_pick(entry, pal, pick);
     dom::set_text("editor-count", &report(entry));
     let apply: web_sys::HtmlButtonElement =
         wasm_bindgen::JsCast::unchecked_into(dom::by_id("editor-apply"));
     apply.set_disabled(entry.undecided() > 0);
 }
 
-/// The strip under the cube: the colors the sticker picked in a view can
-/// take.
+/// The strip under the grid: the colors the picked sticker can take.
 ///
-/// A menu cannot sit on an SVG sticker, so picking there is in two beats --
-/// click the sticker, then the color -- and this is the second beat. The grid
-/// has its own menu, hung on the cell itself.
-pub fn render_pick(entry: &Entry, pal: &Palette, pick: Option<Facelet>) {
-    let strip = dom::by_id("editor-pick");
+/// Picking is in two beats everywhere -- click the sticker, then the color --
+/// whether the sticker was clicked in the grid, in the net or on the cube,
+/// so all three ways in end at the same strip.
+fn render_pick(entry: &Entry, pal: &Palette, pick: Option<Facelet>) {
+    let strip = dom::by_id("editor-menu");
     let Some(facelet) = pick else {
         dom::set_html(
-            "editor-pick",
-            "<span class=\"pick-hint\">Click a sticker on the cube, the net or the grid.</span>",
+            "editor-menu",
+            "<span class=\"pick-hint\">Click a sticker on the grid, the net or the cube.</span>",
         );
         let _ = strip.remove_attribute("hidden");
         return;
@@ -231,6 +195,6 @@ pub fn render_pick(entry: &Entry, pal: &Palette, pick: Option<Facelet>) {
             );
         }
     }
-    dom::set_html("editor-pick", &html);
+    dom::set_html("editor-menu", &html);
     let _ = strip.remove_attribute("hidden");
 }
