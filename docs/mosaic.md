@@ -39,6 +39,13 @@ such a track from the state the moves *arrive* at, reversing and inverting them,
 which is the half of a search that sets out from the solved cube. `wrap: true`
 carries a long sequence into the next row when the columns run out.
 
+Once every track has played out, the cells a track names in `glow` light up
+over a beat of their own: a wash of colour under the cube, wider than it is, so
+what shows is a halo round its silhouette. `meet` lights the pair its two
+searches land on, which is the whole point of the figure; nothing else lights
+unless asked. The colour is `Layout::glow`, defaulting to the palette's
+highlight.
+
 Captions come from the moves, as `3. R`, unless something says otherwise:
 `labels` writes one string of your own per move in place of the move's name,
 `Layout::numbered` drops the `3. `, `first` and `last` annotate the ends of a
@@ -95,6 +102,10 @@ mc.mosaic(tracks=[
 # something of your own under each cube, and no step numbers
 mc.mosaic(tracks=[{"cube": mc.Cube(), "word": "R U R' U'",
                    "labels": ["pull", "turn", "push", "back"]}], numbered=False)
+
+# the cube a row ends on, lit in a colour of your own
+mc.mosaic(c, "R U R' U'", glow=True, glow_color="gold")
+mc.mosaic(tracks=[{"cube": c, "word": "R U R' U'", "glow": [2, 4]}])
 ```
 
 `ms` is how long a turn takes and `hold` how long a landed state is left up
@@ -115,8 +126,9 @@ cargo run -p cube-export -- --scramble 6 --seed 3 -s "F2 D B2" --meet "U' F' L" 
 
 `--mode mosaic-player` writes the HTML page, `--pause N` sets the turns to wait
 before the combined row, `--hold N` the rest on each landed state, `--titles`
-names the rows, `--unnumbered` drops the step numbers, and `--no-ghosts` leaves
-unreached cells blank.
+names the rows, `--unnumbered` drops the step numbers, `--glow #rrggbb` and
+`--no-glow` control the light on the pair two searches meet on, and
+`--no-ghosts` leaves unreached cells blank.
 
 ## Not in the app yet
 

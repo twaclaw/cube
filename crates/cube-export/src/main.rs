@@ -44,6 +44,8 @@ usage: cube-export [options] > out.svg
                         turn starts (default: a little under half a turn)
       --titles LIST     names for the rows, e.g. forwards,backwards,together
       --unnumbered      write the move alone under each cube, unnumbered
+      --glow COLOR      light the cubes two searches meet on in #rrggbb
+      --no-glow         leave them unlit
       --no-ghosts       leave the cells a cube has yet to reach blank
 
  trees (--mode table-tree | search-tree)
@@ -88,6 +90,8 @@ struct Args {
     hold: Option<f64>,
     titles: String,
     numbered: bool,
+    glow: Option<String>,
+    lit: bool,
     ghosts: bool,
     background: Option<String>,
     out: Option<String>,
@@ -122,6 +126,8 @@ impl Default for Args {
             hold: None,
             titles: String::new(),
             numbered: true,
+            glow: None,
+            lit: true,
             ghosts: true,
             background: None,
             out: None,
@@ -180,6 +186,8 @@ fn run() -> Result<(), String> {
             "--hold" => a.hold = Some(value()?.parse().map_err(|_| "bad duration")?),
             "--titles" => a.titles = value()?,
             "--unnumbered" => a.numbered = false,
+            "--glow" => a.glow = Some(value()?),
+            "--no-glow" => a.lit = false,
             "--no-ghosts" => a.ghosts = false,
             "--background" => a.background = Some(value()?),
             "--coord" => a.coord = value()?,
@@ -261,6 +269,7 @@ fn run() -> Result<(), String> {
                 columns: a.columns,
                 numbered: a.numbered,
                 ghosts: a.ghosts,
+                glow: a.glow.as_deref().map(parse_rgb).transpose()?,
                 ..mosaic::Layout::default()
             };
             let pace = mosaic::Pace {
@@ -326,7 +335,22 @@ fn mosaic_tracks(cube: &Cube, moves: &[Move], a: &Args) -> Result<Vec<mosaic::Tr
             track.title = title.trim().to_string();
         }
     }
+    if !a.lit {
+        for track in &mut tracks {
+            track.glow.clear();
+        }
+    }
     Ok(tracks)
+}
+
+/// `#rrggbb`, which is all the command line needs to name a colour.
+fn parse_rgb(text: &str) -> Result<cube_core::palette::Rgb, String> {
+    let hex = text.trim().strip_prefix('#').unwrap_or(text.trim());
+    u32::from_str_radix(hex, 16)
+        .ok()
+        .filter(|_| hex.len() == 6)
+        .map(cube_core::palette::Rgb::from_hex)
+        .ok_or_else(|| format!("{text} is not a colour: write it as #rrggbb"))
 }
 
 /// `1,3,8-11` into facelets.

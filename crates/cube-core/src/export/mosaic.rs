@@ -68,6 +68,9 @@ pub struct Track {
     pub labels: Vec<String>,
     /// A name for the whole row, written in the margin beside it.
     pub title: String,
+    /// Cells to light up once the figure has played out, by index. This is
+    /// how the two cubes a search meets on are pointed at.
+    pub glow: Vec<usize>,
     /// Caption under the first cube. Empty writes `start`.
     pub first: String,
     /// Caption added under the last cube, beside the move that reached it.
@@ -89,6 +92,7 @@ impl Track {
             wrap: false,
             labels: Vec::new(),
             title: String::new(),
+            glow: Vec::new(),
             first: String::new(),
             last: String::new(),
         }
@@ -141,6 +145,18 @@ impl Track {
     pub fn labelled(mut self, labels: Vec<String>) -> Self {
         self.labels = labels;
         self
+    }
+
+    /// Light these cells up at the end, by index.
+    pub fn lit(mut self, cells: Vec<usize>) -> Self {
+        self.glow = cells;
+        self
+    }
+
+    /// Light the cube the last move reaches.
+    pub fn lit_at_end(self) -> Self {
+        let last = self.cells() - 1;
+        self.lit(vec![last])
     }
 
     pub fn captioned(mut self, first: impl Into<String>, last: impl Into<String>) -> Self {
@@ -292,6 +308,9 @@ pub struct Layout {
     /// Outline the cells no cube has reached yet, so the grid reads as a grid
     /// from the first frame.
     pub ghosts: bool,
+    /// What colour the cells a track lights are lit in. `None` takes the
+    /// palette's own highlight.
+    pub glow: Option<Rgb>,
 }
 
 impl Default for Layout {
@@ -302,6 +321,7 @@ impl Default for Layout {
             caption: 0.12,
             numbered: true,
             ghosts: true,
+            glow: None,
         }
     }
 }
@@ -484,6 +504,9 @@ struct Painter<'a> {
     marks: &'a Marks,
     grid: &'a Grid,
     gallery: Gallery,
+    /// The gradient the lit cells are washed with, written beside the
+    /// drawings rather than inside one, so no `<use>` ever clones its id.
+    lights: String,
 }
 
 impl Painter<'_> {
@@ -587,6 +610,43 @@ impl Painter<'_> {
     }
 }
 
+impl Painter<'_> {
+    /// A wash of light under the cells a track points at, as one layer the
+    /// frames fade up. The gradient is wider than the cube, so what shows is
+    /// a halo around its silhouette rather than a box behind it.
+    fn halo(&mut self, lanes: &[Lane], color: Rgb) -> Option<String> {
+        let lit: Vec<&Cell> = lanes
+            .iter()
+            .flat_map(|lane| lane.track.glow.iter().filter_map(|i| lane.cells.get(*i)))
+            .collect();
+        if lit.is_empty() {
+            return None;
+        }
+        let side = self.st.size * 1.5;
+        let off = (side - self.st.size) * 0.5;
+        let fill = format!("{}-light", self.gallery.prefix);
+        self.lights = format!(
+            "<radialGradient id=\"{fill}\">\
+             <stop offset=\"0\" stop-color=\"{c}\" stop-opacity=\"0.5\"/>\
+             <stop offset=\"0.6\" stop-color=\"{c}\" stop-opacity=\"0.3\"/>\
+             <stop offset=\"1\" stop-color=\"{c}\" stop-opacity=\"0\"/>\
+             </radialGradient>",
+            c = color.hex()
+        );
+        let mut body = String::new();
+        for cell in lit {
+            body.push_str(&format!(
+                "<rect x=\"{}\" y=\"{}\" width=\"{side}\" height=\"{side}\" \
+                 fill=\"url(#{fill})\"/>",
+                num(cell.x - off),
+                num(cell.y - off),
+                side = num(side),
+            ));
+        }
+        Some(self.gallery.intern(body))
+    }
+}
+
 /// How solid the arriving cube is, a fraction of the way through its turn. It
 /// finishes materialising before the turn lands, so the end of the rotation is
 /// seen at full strength.
@@ -596,10 +656,20 @@ fn fade(t: f64) -> f64 {
 
 /// One frame: the grid as it stands at `t`, with every cube that has landed
 /// and the ones turning their way in.
-fn compose(lanes: &[Lane], t: f64, ghosts: Option<&str>, p: &mut Painter) -> String {
+fn compose(
+    lanes: &[Lane],
+    t: f64,
+    ghosts: Option<&str>,
+    light: Option<(&str, f64)>,
+    p: &mut Painter,
+) -> String {
     let mut s = String::new();
     if let Some(id) = ghosts {
         s.push_str(&format!("<use href=\"#{id}\"/>"));
+    }
+    // Under the cubes, so what it does is light them rather than cover them.
+    if let Some((id, up)) = light.filter(|(_, up)| *up > 0.0) {
+        s.push_str(&format!("<use href=\"#{id}\" opacity=\"{}\"/>", num(up)));
     }
     for lane in lanes {
         let Some((landed, turning)) = lane.at(t) else {
@@ -656,9 +726,16 @@ fn label(lanes: &[Lane], start: f64, middle: f64) -> String {
 }
 
 /// The moments the figure has to draw: every turn sampled `steps` times, and
-/// every arrival and landing, which are what the player steps between.
-fn moments(lanes: &[Lane], steps: usize) -> Vec<(f64, bool)> {
+/// every arrival and landing, which are what the player steps between. The
+/// lights, if the figure has any, come up over `lit` once all of it has
+/// played.
+fn moments(lanes: &[Lane], steps: usize, lit: Option<(f64, f64)>) -> Vec<(f64, bool)> {
     let mut marks = vec![(0.0, true)];
+    if let Some((from, over)) = lit {
+        for s in 0..=steps {
+            marks.push((from + over * s as f64 / steps as f64, s == steps));
+        }
+    }
     for lane in lanes {
         marks.push((lane.clock.start, true));
         for i in 0..lane.track.moves.len() {
@@ -709,7 +786,7 @@ pub fn timeline(
         .flat_map(|l| l.cells.iter().map(|c| c.col + 1))
         .max()
         .unwrap_or(1);
-    let over = lanes
+    let played = lanes
         .iter()
         .map(|l| l.clock.end(l.track.moves.len()))
         .fold(0.0, f64::max);
@@ -721,8 +798,21 @@ pub fn timeline(
         marks,
         grid: &grid,
         gallery: Gallery::new(format!("m{:x}", fingerprint(tracks))),
+        lights: String::new(),
     };
-    let moments = moments(&lanes, pace.steps);
+    // The lights come up once everything has landed, over a beat of their own.
+    let halo = p.halo(&lanes, layout.glow.unwrap_or(pal.highlight));
+    let lighting = pace.beat();
+    let over = if halo.is_some() {
+        played + lighting
+    } else {
+        played
+    };
+    let moments = moments(
+        &lanes,
+        pace.steps,
+        halo.as_ref().map(|_| (played, lighting)),
+    );
     let mut frames: Vec<Frame> = Vec::with_capacity(moments.len());
     for (i, &(t, is_state)) in moments.iter().enumerate() {
         // A frame is up until the next moment, and the last one rests on the
@@ -732,7 +822,14 @@ pub fn timeline(
             None => (over - t).max(pace.beat()),
         };
         let ghosts = layout.ghosts.then(|| p.ghosts(&lanes, t));
-        let markup = compose(&lanes, t, ghosts.as_deref(), &mut p);
+        let up = ease((t - played) / lighting);
+        let markup = compose(
+            &lanes,
+            t,
+            ghosts.as_deref(),
+            halo.as_deref().map(|id| (id, up)),
+            &mut p,
+        );
         // Nothing on screen changed, so this is the same frame held longer:
         // which is what a rest on a landed state is, and what a row waiting
         // for another to finish looks like.
@@ -743,18 +840,21 @@ pub fn timeline(
             last.is_state |= is_state;
             continue;
         }
+        let name = match (i, frames.last()) {
+            (0, _) => "start".to_string(),
+            // Nothing is turning while the lights come up, so the figure goes
+            // on saying what it last did.
+            (_, Some(prev)) if t >= played => prev.label.clone(),
+            _ => label(&lanes, t, t + ms * 0.5),
+        };
         frames.push(Frame {
             markup,
-            label: if i == 0 {
-                "start".to_string()
-            } else {
-                label(&lanes, t, t + ms * 0.5)
-            },
+            label: name,
             ms,
             is_state,
         });
     }
-    let backdrop = format!("{}{}", p.gallery.defs(), p.titles(&lanes));
+    let backdrop = format!("{}{}{}", p.gallery.defs(), p.lights, p.titles(&lanes));
     Timeline {
         frames,
         width: grid.gutter + cols as f64 * grid.cell_w + grid.pad,
@@ -791,11 +891,13 @@ pub fn meet(cube: &Cube, forward: &[Move], backward: &[Move], pause: f64) -> Vec
         Track::new(cube.clone(), forward.to_vec())
             .at(0, 0)
             .titled("forwards")
-            .captioned("scrambled", "meet"),
+            .captioned("scrambled", "meet")
+            .lit_at_end(),
         Track::rewound(target, backward)
             .at(1, columns - 1)
             .titled("backwards")
-            .captioned(end, "meet"),
+            .captioned(end, "meet")
+            .lit_at_end(),
         Track::new(cube.clone(), whole)
             .at(2, 0)
             .after(wait)
@@ -820,6 +922,7 @@ fn fingerprint(tracks: &[Track]) -> u64 {
         }
         eat(t.title.as_bytes());
         eat(&[t.row as u8, t.col as u8, t.delay as u8, t.back as u8]);
+        eat(&t.glow.iter().map(|i| *i as u8).collect::<Vec<u8>>());
     }
     h
 }

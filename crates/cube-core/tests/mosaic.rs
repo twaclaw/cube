@@ -349,15 +349,64 @@ fn a_meet_runs_until_the_combined_row_is_done() {
     // The first frame shows both ends and nothing of the third row.
     let first = &tl.frames[0].markup;
     assert_eq!(first.matches("<use href=").count(), 3);
-    // By the end every cell of all three rows holds a cube.
+    // By the end every cell of all three rows holds a cube, over the outline
+    // layer and under the light on the pair they met on.
     let last = &tl.frames.last().unwrap().markup;
     let cells: usize = tracks.iter().map(Track::cells).sum();
-    assert_eq!(last.matches("<use href=").count(), cells + 1);
+    assert_eq!(last.matches("<use href=").count(), cells + 2);
     // The two halves turn together, so a mid turn frame names both.
     assert!(
         tl.frames.iter().any(|f| f.label.split(' ').count() == 2),
         "a frame of two rows turning at once is labelled with both"
     );
+}
+
+#[test]
+fn nothing_lights_unless_a_track_asks() {
+    let tl = draw(&[Track::new(Cube::solved(3), moves("R U"))], STEPS);
+    assert!(!tl.backdrop.contains("radialGradient"));
+    assert!(
+        tl.frames
+            .iter()
+            .all(|f| !f.markup.contains("opacity=\"0\""))
+    );
+}
+
+#[test]
+fn the_lights_come_up_at_the_end_over_the_cubes_a_track_points_at() {
+    let cube = Cube::solved(3);
+    let solution = moves("R U R' U' F2 L");
+    let (forward, backward) = solution.split_at(3);
+    let tracks = mosaic::meet(&cube, forward, backward, 1.0);
+    // The two rows that meet light the cube they meet on; the third does not.
+    assert_eq!(tracks[0].glow, vec![forward.len()]);
+    assert_eq!(tracks[1].glow, vec![backward.len()]);
+    assert!(tracks[2].glow.is_empty());
+
+    let tl = draw(&tracks, STEPS);
+    let dark = draw(
+        &tracks
+            .iter()
+            .cloned()
+            .map(|t| t.lit(Vec::new()))
+            .collect::<Vec<_>>(),
+        STEPS,
+    );
+    assert!(tl.backdrop.contains("<radialGradient"));
+
+    // The light is one layer however many cubes it falls on, it is not there
+    // at the start, and it is full up at the end.
+    let uses = |f: &cube_core::export::Frame| f.markup.matches("<use href=").count();
+    assert_eq!(uses(&tl.frames[0]), uses(&dark.frames[0]));
+    assert_eq!(
+        uses(tl.frames.last().unwrap()),
+        uses(dark.frames.last().unwrap()) + 1
+    );
+    assert!(tl.frames.last().unwrap().markup.contains("opacity=\"1\""));
+
+    // It comes up after the cubes are done, over a beat of its own.
+    assert!(tl.total_ms() > dark.total_ms());
+    assert_eq!(tl.frames.len(), dark.frames.len() + STEPS);
 }
 
 #[test]
