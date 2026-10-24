@@ -7,10 +7,18 @@ name = "cube-core"
 version = "0.1.0"
 
 [[package]]
+name = "cube-graphs"
+version = "0.1.0"
+dependencies = [
+ "cube-core",
+]
+
+[[package]]
 name = "cube-py"
 version = "0.1.0"
 dependencies = [
  "cube-core",
+ "cube-graphs",
  "pyo3",
 ]
 

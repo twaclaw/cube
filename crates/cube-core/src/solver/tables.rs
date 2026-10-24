@@ -192,8 +192,9 @@ impl Default for Tables {
 
 const PHASE1: [usize; N_MOVES] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 
-/// The 18 face turns, built from the three quarter turns of each face.
-fn all_moves() -> [CubieCube; N_MOVES] {
+/// The 18 face turns, built from the three quarter turns of each face. Public
+/// so that a figure drawing the tables turns the same way the solver does.
+pub fn all_moves() -> [CubieCube; N_MOVES] {
     let quarter = basic_moves();
     core::array::from_fn(|m| {
         let base = &quarter[FACES[m / 3] as usize];

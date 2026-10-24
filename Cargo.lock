@@ -129,6 +129,14 @@ name = "cube-export"
 version = "0.1.0"
 dependencies = [
  "cube-core",
+ "cube-graphs",
+]
+
+[[package]]
+name = "cube-graphs"
+version = "0.1.0"
+dependencies = [
+ "cube-core",
 ]
 
 [[package]]

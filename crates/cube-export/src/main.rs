@@ -23,7 +23,8 @@ usage: cube-export [options] > out.svg
   -v, --view YAW,PITCH  camera angles in degrees
   -p, --preset NAME     named view (U F R, Isometric, Front, Up, ...)
       --zoom K          camera zoom (default 1)
-  -m, --mode MODE       still | net | strip | anim | player (default still)
+  -m, --mode MODE       still | net | strip | anim | player | table-tree |
+                        search-tree (default still)
       --numbers         facelet numbers on the net
       --highlight LIST  facelet numbers to ring, e.g. 1,3,8-11
       --steps N         animation frames per move (default 8, 1 = states only)
@@ -32,6 +33,15 @@ usage: cube-export [options] > out.svg
       --size-px N       SVG viewBox side (default 300)
       --flat            notebook colors, no shading
       --background CSS  solid background instead of transparent
+
+ trees (--mode table-tree | search-tree)
+      --coord NAME      twist | flip | slice | corners | ud_edges | slice_perm
+      --depth N         levels to draw (default 3)
+      --moves LIST      moves to branch on, e.g. U,R2 (default: the table's own)
+      --phase 1|2       which search to draw (default 1)
+      --budget N        force one move budget instead of the first that works
+      --cut N           cut branches drawn per node (default 2)
+      --app URL         wrap in html, with a draggable cube from that app
   -o, --out FILE        write to FILE instead of stdout
   -h, --help            this text
 ";
@@ -63,6 +73,13 @@ struct Args {
     flat: bool,
     background: Option<String>,
     out: Option<String>,
+    coord: String,
+    depth: usize,
+    moves: String,
+    phase: u8,
+    budget: Option<usize>,
+    cut: usize,
+    app: Option<String>,
 }
 
 impl Default for Args {
@@ -84,6 +101,13 @@ impl Default for Args {
             flat: false,
             background: None,
             out: None,
+            coord: "corners".to_string(),
+            depth: 3,
+            moves: String::new(),
+            phase: 1,
+            budget: None,
+            cut: 2,
+            app: None,
         }
     }
 }
@@ -128,6 +152,13 @@ fn run() -> Result<(), String> {
             "--size-px" => a.size = value()?.parse().map_err(|_| "bad size")?,
             "--flat" => a.flat = true,
             "--background" => a.background = Some(value()?),
+            "--coord" => a.coord = value()?,
+            "--depth" => a.depth = value()?.parse().map_err(|_| "bad depth")?,
+            "--moves" => a.moves = value()?,
+            "--phase" => a.phase = value()?.parse().map_err(|_| "bad phase")?,
+            "--budget" => a.budget = Some(value()?.parse().map_err(|_| "bad budget")?),
+            "--cut" => a.cut = value()?.parse().map_err(|_| "bad count")?,
+            "--app" => a.app = Some(value()?),
             "-o" | "--out" => a.out = Some(value()?),
             other => return Err(format!("unknown option {other}")),
         }
@@ -194,6 +225,25 @@ fn run() -> Result<(), String> {
             let tl = export::timeline(&cube, &moves, &cam, &st, &STANDARD, &marks, a.steps, a.ms);
             export::player_html(&tl, "Rubik's cube", &notation::format(&moves))
         }
+        "table-tree" => {
+            let coord = parse_coord(&a.coord)?;
+            let moves = parse_move_list(&a.moves)?;
+            let tree = cube_graphs::table_tree(coord, &moves, a.depth);
+            draw_tree(&tree, &a)
+        }
+        "search-tree" => {
+            let phase = match a.phase {
+                1 => cube_graphs::Phase::One,
+                2 => cube_graphs::Phase::Two,
+                other => return Err(format!("no phase {other}")),
+            };
+            let mut state = cube.clone();
+            state.apply_moves(&moves);
+            let tables = cube_core::solver::tables::Tables::new();
+            let tree = cube_graphs::search_tree(&tables, &state, phase, a.budget, 4000, a.cut)
+                .ok_or("that state is not one this search can start from")?;
+            draw_tree(&tree, &a)
+        }
         other => return Err(format!("unknown mode {other}")),
     };
 
@@ -207,6 +257,45 @@ fn run() -> Result<(), String> {
 }
 
 /// `1,3,8-11` into facelets.
+/// A tree, as one svg or wrapped in the html that can show a draggable cube.
+fn draw_tree(tree: &cube_graphs::Tree, a: &Args) -> String {
+    let style = cube_graphs::Style {
+        flat: a.flat,
+        camera: a.cam.clamped(),
+        ..cube_graphs::Style::default()
+    };
+    match a.app.as_deref() {
+        Some(url) => tree.html(&style, Some(url)),
+        None => tree.svg(&style),
+    }
+}
+
+fn parse_coord(name: &str) -> Result<cube_graphs::Coord, String> {
+    use cube_graphs::Coord;
+    match name {
+        "twist" => Ok(Coord::Twist),
+        "flip" => Ok(Coord::Flip),
+        "slice" => Ok(Coord::Slice),
+        "corners" => Ok(Coord::Corners),
+        "ud_edges" | "ud-edges" => Ok(Coord::UdEdges),
+        "slice_perm" | "slice-perm" => Ok(Coord::SlicePerm),
+        other => Err(format!("no coordinate called {other:?}")),
+    }
+}
+
+/// Move names to the solver's move indices.
+fn parse_move_list(list: &str) -> Result<Vec<usize>, String> {
+    use cube_core::solver::tables::{N_MOVES, move_name};
+    let mut out = Vec::new();
+    for want in list.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let found = (0..N_MOVES)
+            .find(|&m| move_name(m) == want)
+            .ok_or_else(|| format!("no move called {want:?}"))?;
+        out.push(found);
+    }
+    Ok(out)
+}
+
 fn parse_highlights(n: u8, spec: &str) -> Result<Highlights, String> {
     let mut out = Highlights::new();
     for part in spec.split(',').map(str::trim).filter(|s| !s.is_empty()) {

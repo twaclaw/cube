@@ -115,6 +115,8 @@ make build PUBLIC_URL=/cube/                       # the bundle GitHub Pages ser
 
 ```
 crates/cube-core     state, moves, notation, the SVG renderers, solver, exports
+crates/cube-graphs   figures the app does not need: the tables and the searches
+                     drawn as trees, for the notebooks and the book
 crates/cube-web      the browser front end (wasm-bindgen and web-sys only)
 crates/cube-export   the same exports from the command line
 crates/cube-py       the same drawings as a Python module (maturin, outside

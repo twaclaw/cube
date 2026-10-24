@@ -1,7 +1,12 @@
 [workspace]
 # cube-py is a Python extension module: it links against the interpreter, so
 # maturin builds it, not `cargo build --workspace`.
-members = ["crates/cube-core", "crates/cube-web", "crates/cube-export"]
+members = [
+    "crates/cube-core",
+    "crates/cube-graphs",
+    "crates/cube-web",
+    "crates/cube-export",
+]
 exclude = ["crates/cube-py"]
 resolver = "3"
 
@@ -12,6 +17,8 @@ repository = "https://github.com/twaclaw/cube"
 
 [workspace.dependencies]
 cube-core = { path = "crates/cube-core" }
+# Figures the app does not need: the trees in the notebooks and the book.
+cube-graphs = { path = "crates/cube-graphs" }
 
 # Small, fast wasm: optimize for size and let wasm-opt finish the job.
 [profile.release]

@@ -16,4 +16,5 @@ lto = true
 
 [dependencies]
 cube-core = { path = "../cube-core" }
+cube-graphs = { path = "../cube-graphs" }
 pyo3 = { version = "0.30.1", features = ["extension-module", "abi3-py39"] }

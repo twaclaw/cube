@@ -8,3 +8,4 @@ repository.workspace = true
 
 [dependencies]
 cube-core.workspace = true
+cube-graphs.workspace = true

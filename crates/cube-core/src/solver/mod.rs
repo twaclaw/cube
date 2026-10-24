@@ -104,6 +104,12 @@ impl Kociemba {
         self.tables.bytes()
     }
 
+    /// The tables themselves, for a caller that wants to read the same bounds
+    /// the search reads: drawing the search, say.
+    pub fn tables(&self) -> &tables::Tables {
+        &self.tables
+    }
+
     /// Solve, looking as hard as `limits` allows.
     pub fn solve_with(&self, cube: &Cube, limits: search::Limits) -> Result<Solution, SolveError> {
         let start = cubie::CubieCube::from_cube(cube).ok_or(SolveError::Unreachable)?;

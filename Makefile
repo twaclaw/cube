@@ -89,6 +89,15 @@ figures: ## Write sample figures with the command line exporter
 	    -o $(FIGURES)/sexy-move-anim.svg
 	cargo run --release -p cube-export -- -s "R U R' U'" --mode player \
 	    -o $(FIGURES)/sexy-move.html
+	cargo run --release -p cube-export -- --mode table-tree --coord corners \
+	    --moves U,R2 --depth 4 -o $(FIGURES)/tree-corners.svg
+	cargo run --release -p cube-export -- --mode table-tree --coord flip \
+	    --moves F,U --depth 3 -o $(FIGURES)/tree-flip.svg
+	cargo run --release -p cube-export -- --mode search-tree -s "R2 U F' L" \
+	    --phase 1 --cut 1 -o $(FIGURES)/tree-search.svg
+	cargo run --release -p cube-export -- --mode search-tree -s "R2 U F' L" \
+	    --phase 1 --cut 1 --app https://twaclaw.github.io/cube/ \
+	    -o $(FIGURES)/tree-search.html
 	@ls -lh $(FIGURES)
 
 og: ## Redraw the social preview cards (needs rsvg-convert)

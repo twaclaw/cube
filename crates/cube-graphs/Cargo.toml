@@ -1,0 +1,10 @@
+[package]
+name = "cube-graphs"
+version = "0.1.0"
+description = "Ancillary figures for the cube: the tables and the searches, drawn as trees"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cube-core.workspace = true

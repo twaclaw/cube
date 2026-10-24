@@ -11,8 +11,10 @@ use cube_core::render::{
     Camera, CycleStyle, Facelet, Marks, NetStyle, Style3d, cube3d, cycles, net,
 };
 use cube_core::scramble::{Rng, scramble};
+use cube_core::solver::tables::{N_MOVES, move_name};
 use cube_core::solver::{Kociemba, SolveError, search::Limits};
 use cube_core::{Cube as CoreCube, Permutation as CorePermutation, notation};
+use cube_graphs as graphs;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
@@ -716,6 +718,140 @@ fn solve(cube: &Cube) -> PyResult<Solution> {
     cube.solve()
 }
 
+/// Where a tree figure gets its draggable cube, if it gets one.
+fn app_url(app: Option<&Bound<'_, PyAny>>) -> PyResult<Option<String>> {
+    let Some(value) = app else {
+        return Ok(None);
+    };
+    if let Ok(flag) = value.extract::<bool>() {
+        return Ok(flag.then(|| "https://twaclaw.github.io/cube/".to_string()));
+    }
+    Ok(Some(value.extract::<String>()?))
+}
+
+fn tree_style(size: f64, zoom: f64, flat: bool, yaw: f64, pitch: f64) -> graphs::Style {
+    graphs::Style {
+        node: size,
+        zoom,
+        flat,
+        camera: Camera {
+            yaw,
+            pitch,
+            zoom: 1.0,
+        }
+        .clamped(),
+        ..graphs::Style::default()
+    }
+}
+
+/// A tree as a drawing: one SVG, or HTML when an app can host a draggable cube.
+fn tree_drawing(tree: &graphs::Tree, style: &graphs::Style, app: Option<String>) -> Drawing {
+    match app {
+        Some(url) => Drawing {
+            text: tree.html(style, Some(&url)),
+            is_svg: false,
+        },
+        None => Drawing::svg_of(tree.svg(style)),
+    }
+}
+
+/// The tree of a solver table being filled, from the solved cube outward.
+///
+/// `coord` is one of twist, flip, slice, corners, ud_edges, slice_perm;
+/// `moves` are the moves to branch on, written as the solver writes them, and
+/// an empty list means the whole move set the table is built with. Keep both
+/// small: three moves and four levels is already forty cubes.
+#[pyfunction]
+#[pyo3(signature = (coord="corners", moves=None, depth=3, size=46.0, zoom=3.4,
+                    flat=false, yaw=34.0, pitch=26.0, app=None))]
+#[allow(clippy::too_many_arguments)]
+fn table_tree(
+    coord: &str,
+    moves: Option<Vec<String>>,
+    depth: usize,
+    size: f64,
+    zoom: f64,
+    flat: bool,
+    yaw: f64,
+    pitch: f64,
+    app: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Drawing> {
+    let which = match coord {
+        "twist" => graphs::Coord::Twist,
+        "flip" => graphs::Coord::Flip,
+        "slice" => graphs::Coord::Slice,
+        "corners" => graphs::Coord::Corners,
+        "ud_edges" => graphs::Coord::UdEdges,
+        "slice_perm" => graphs::Coord::SlicePerm,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "no coordinate called {other:?}: try twist, flip, slice, corners, \
+                 ud_edges or slice_perm"
+            )));
+        }
+    };
+    let indices = move_indices(moves.as_deref())?;
+    let tree = graphs::table_tree(which, &indices, depth);
+    let style = tree_style(size, zoom, flat, yaw, pitch);
+    Ok(tree_drawing(&tree, &style, app_url(app)?))
+}
+
+/// The tree an iterative deepening search walks, at the budget that works.
+#[pyfunction]
+#[pyo3(signature = (cube, phase=1, budget=None, cut=2, max_nodes=4000, size=46.0,
+                    zoom=3.4, flat=false, yaw=34.0, pitch=26.0, app=None))]
+#[allow(clippy::too_many_arguments)]
+fn search_tree(
+    cube: &Cube,
+    phase: u8,
+    budget: Option<usize>,
+    cut: usize,
+    max_nodes: usize,
+    size: f64,
+    zoom: f64,
+    flat: bool,
+    yaw: f64,
+    pitch: f64,
+    app: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Drawing> {
+    let which = match phase {
+        1 => graphs::Phase::One,
+        2 => graphs::Phase::Two,
+        other => return Err(PyValueError::new_err(format!("no phase {other}: 1 or 2"))),
+    };
+    let tree = graphs::search_tree(
+        solver().tables(),
+        &cube.inner,
+        which,
+        budget,
+        max_nodes,
+        cut,
+    )
+    .ok_or_else(|| {
+        PyValueError::new_err(
+            "that state is not one this search can start from: it is unreachable, \
+             or phase 2 was asked for a cube that has not reached the subgroup",
+        )
+    })?;
+    let style = tree_style(size, zoom, flat, yaw, pitch);
+    Ok(tree_drawing(&tree, &style, app_url(app)?))
+}
+
+/// Move names to the indices the solver keeps them in.
+fn move_indices(names: Option<&[String]>) -> PyResult<Vec<usize>> {
+    let Some(names) = names else {
+        return Ok(Vec::new());
+    };
+    names
+        .iter()
+        .map(|want| {
+            (0..N_MOVES)
+                .find(|&m| move_name(m) == want.as_str())
+                .ok_or_else(|| PyValueError::new_err(format!("no move called {want:?}")))
+        })
+        .collect()
+}
+
 /// The faces, in the order facelet numbers run.
 #[pyfunction]
 fn faces() -> Vec<String> {
@@ -740,6 +876,8 @@ fn magiccube(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(player, module)?)?;
     module.add_function(wrap_pyfunction!(embed, module)?)?;
     module.add_function(wrap_pyfunction!(solve, module)?)?;
+    module.add_function(wrap_pyfunction!(table_tree, module)?)?;
+    module.add_function(wrap_pyfunction!(search_tree, module)?)?;
     module.add_function(wrap_pyfunction!(faces, module)?)?;
     module.add("__doc__", "The cube drawings, for notebooks.")?;
     Ok(())
