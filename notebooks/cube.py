@@ -258,6 +258,8 @@ def _(mo):
     ends looks like: the scramble walks forwards along the top row, the solved
     cube walks backwards along the second, the two stop on the same state in
     the same column, and a third row then carries the whole solution across.
+    Each row is named in the margin, and `hold` is how long a cube sits on the
+    state it lands before the next one starts arriving.
     """)
 
 
@@ -266,7 +268,7 @@ def _(mc):
     short = mc.Cube.scrambled(seed=3, moves=6)
     halves = str(short.solve()).split()
     forward, backward = " ".join(halves[:3]), " ".join(halves[3:])
-    mc.mosaic(short, forward, meet=backward, size=130)
+    mc.mosaic(short, forward, meet=backward, size=130, hold=600)
     return backward, forward, short
 
 
@@ -318,7 +320,7 @@ def _(
         "film": mc.animation(mc.Cube(), film, steps=6).save(str(FIGURES / "sexy-move.svg")),
         "player": mc.player(mc.Cube(), film).save(str(FIGURES / "sexy-move.html")),
         "mosaic": mc.mosaic(mc.Cube(), film, columns=5, size=150).save(str(FIGURES / "sexy-move-mosaic.svg")),
-        "meet": mc.mosaic(short, forward, meet=backward, size=130).save(str(FIGURES / "meet-in-the-middle.svg")),
+        "meet": mc.mosaic(short, forward, meet=backward, size=130, hold=600).save(str(FIGURES / "meet-in-the-middle.svg")),
     }
     saved
 

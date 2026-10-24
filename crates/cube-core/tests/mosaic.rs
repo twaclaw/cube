@@ -1,7 +1,7 @@
 //! The grid animation: a sequence that draws itself one cube per move.
 
-use cube_core::export::mosaic::{self, Layout, Track};
-use cube_core::export::{animated_svg, player_html};
+use cube_core::export::mosaic::{self, Layout, Pace, Track};
+use cube_core::export::{Timeline, animated_svg, player_html};
 use cube_core::palette::STANDARD;
 use cube_core::render::{Camera, Marks, Style3d};
 use cube_core::{Cube, notation};
@@ -13,7 +13,7 @@ fn moves(word: &str) -> Vec<cube_core::Move> {
     notation::parse(3, word).expect("a maneuver the parser knows")
 }
 
-fn draw(tracks: &[Track], steps: usize) -> cube_core::export::Timeline {
+fn drawn(tracks: &[Track], layout: &Layout, pace: &Pace) -> Timeline {
     mosaic::timeline(
         tracks,
         &Camera::default(),
@@ -23,14 +23,25 @@ fn draw(tracks: &[Track], steps: usize) -> cube_core::export::Timeline {
         },
         &STANDARD,
         &Marks::new(),
+        layout,
+        pace,
+    )
+}
+
+fn draw(tracks: &[Track], steps: usize) -> Timeline {
+    drawn(
+        tracks,
         &Layout::default(),
-        steps,
-        300.0,
+        &Pace {
+            ms: 300.0,
+            steps,
+            ..Pace::default()
+        },
     )
 }
 
 /// Every id the frames point at.
-fn referenced(tl: &cube_core::export::Timeline) -> BTreeSet<String> {
+fn referenced(tl: &Timeline) -> BTreeSet<String> {
     tl.frames
         .iter()
         .flat_map(|f| f.markup.split("<use href=\"#").skip(1))
@@ -39,7 +50,7 @@ fn referenced(tl: &cube_core::export::Timeline) -> BTreeSet<String> {
 }
 
 /// Every id the backdrop defines.
-fn defined(tl: &cube_core::export::Timeline) -> BTreeSet<String> {
+fn defined(tl: &Timeline) -> BTreeSet<String> {
     tl.backdrop
         .split("<g id=\"")
         .skip(1)
@@ -48,9 +59,8 @@ fn defined(tl: &cube_core::export::Timeline) -> BTreeSet<String> {
 }
 
 #[test]
-fn one_slot_per_move_and_one_still_per_state() {
-    let word = "R U R' U'";
-    let tl = draw(&[Track::new(Cube::solved(3), moves(word))], STEPS);
+fn one_turn_per_move_and_one_still_per_state() {
+    let tl = draw(&[Track::new(Cube::solved(3), moves("R U R' U'"))], STEPS);
     let states = tl.frames.iter().filter(|f| f.is_state).count();
     assert_eq!(tl.frames.len(), 1 + 4 * STEPS);
     assert_eq!(states, 5, "the state it starts from, then one per move");
@@ -61,8 +71,8 @@ fn one_slot_per_move_and_one_still_per_state() {
 #[test]
 fn a_cube_lands_in_every_cell_as_its_move_goes_by() {
     let tl = draw(&[Track::new(Cube::solved(3), moves("R U F"))], STEPS);
-    // The still at the head of each slot holds one more cube than the one
-    // before it: the grid fills itself as the sequence plays.
+    // The still at each landing holds one more cube than the one before it:
+    // the grid fills itself as the sequence plays.
     let landed: Vec<usize> = tl
         .frames
         .iter()
@@ -93,46 +103,158 @@ fn states_only_when_a_move_gets_one_frame() {
 }
 
 #[test]
+fn a_hold_rests_on_the_state_it_lands_without_drawing_it_twice() {
+    let track = Track::new(Cube::solved(3), moves("R U F"));
+    let brisk = drawn(
+        std::slice::from_ref(&track),
+        &Layout::default(),
+        &Pace {
+            ms: 300.0,
+            hold: Some(0.0),
+            steps: STEPS,
+        },
+    );
+    let resting = drawn(
+        &[track],
+        &Layout::default(),
+        &Pace {
+            ms: 300.0,
+            hold: Some(500.0),
+            steps: STEPS,
+        },
+    );
+    // The rest is time, not frames: the still a move lands on simply stays up.
+    assert_eq!(brisk.frames.len(), resting.frames.len());
+    assert_eq!(resting.total_ms(), brisk.total_ms() + 4.0 * 500.0);
+    let landing = resting
+        .frames
+        .iter()
+        .find(|f| f.is_state && f.label == "R")
+        .expect("the frame R lands on");
+    assert!(landing.ms >= 500.0);
+}
+
+#[test]
+fn a_row_can_run_at_its_own_speed() {
+    let cube = Cube::solved(3);
+    let quick = Track::new(cube.clone(), moves("R U F")).paced(Some(100.0), Some(0.0));
+    let slow = Track::new(cube, moves("R U F"))
+        .at(1, 0)
+        .paced(Some(400.0), Some(0.0));
+    let tl = draw(&[quick, slow], STEPS);
+    // Both rows finish their three moves, and the figure lasts as long as the
+    // slower one takes, plus the beat it rests on the finished grid.
+    assert!(tl.total_ms() > 3.0 * 400.0);
+    assert!(tl.total_ms() < 3.0 * 400.0 + 600.0);
+    let last = tl.frames.last().unwrap();
+    assert_eq!(
+        last.markup.matches("<use href=").count(),
+        9,
+        "4 + 4 + ghosts"
+    );
+    // The quick row is done while the slow one is still turning: a third of
+    // the way in it has landed everything and the other has landed one.
+    let third = tl
+        .frames
+        .iter()
+        .scan(0.0, |run, f| {
+            *run += f.ms;
+            Some((*run, f))
+        })
+        .find(|(run, _)| *run > 410.0)
+        .expect("a frame after the quick row is done")
+        .1;
+    assert_eq!(
+        third.markup.matches("<use href=").count(),
+        7,
+        "4 + 2 + ghosts"
+    );
+}
+
+#[test]
+fn moves_can_be_labelled_and_the_numbering_dropped() {
+    let track = Track::new(Cube::solved(3), moves("R U F")).labelled(vec![
+        "first".to_string(),
+        String::new(),
+        "last".to_string(),
+    ]);
+    let tl = draw(std::slice::from_ref(&track), 1);
+    let drawn = tl.backdrop.clone();
+    assert!(drawn.contains(">1. first<"));
+    assert!(
+        drawn.contains(">2. U<"),
+        "a blank label keeps the move's name"
+    );
+    assert!(drawn.contains(">3. last<"));
+
+    let plain = drawn_without_numbers(&track);
+    assert!(plain.contains(">first<") && !plain.contains(">1. first<"));
+    assert!(plain.contains(">U<"));
+}
+
+fn drawn_without_numbers(track: &Track) -> String {
+    drawn(
+        std::slice::from_ref(track),
+        &Layout {
+            numbered: false,
+            ..Layout::default()
+        },
+        &Pace {
+            steps: 1,
+            ..Pace::default()
+        },
+    )
+    .backdrop
+}
+
+#[test]
+fn a_row_can_be_named_in_the_margin() {
+    let plain = draw(&[Track::new(Cube::solved(3), moves("R U"))], 1);
+    let titled = draw(
+        &[Track::new(Cube::solved(3), moves("R U")).titled("forwards")],
+        1,
+    );
+    assert!(titled.backdrop.contains(">forwards<"));
+    assert!(
+        titled.width > plain.width,
+        "the name gets a margin of its own"
+    );
+    // The name is drawn once, behind the frames, not in every one of them.
+    assert!(titled.frames.iter().all(|f| !f.markup.contains("forwards")));
+}
+
+#[test]
 fn the_grid_is_as_wide_as_the_cells_it_holds() {
-    let st = Style3d {
-        size: 120.0,
-        ..Style3d::default()
-    };
+    let size = 120.0;
     let tl = draw(&[Track::new(Cube::solved(3), moves("R U F"))], STEPS);
     // Four cells across, one row down, with the caption strip under the cube.
-    assert!(tl.width > 4.0 * st.size && tl.width < 4.4 * st.size);
-    assert!(tl.height > st.size && tl.height < 1.3 * st.size);
+    assert!(tl.width > 4.0 * size && tl.width < 4.4 * size);
+    assert!(tl.height > size && tl.height < 1.3 * size);
 }
 
 #[test]
 fn a_long_sequence_wraps_into_rows() {
     let word = "R U R' U' R U R' U' R U R' U'";
     let track = Track::new(Cube::solved(3), moves(word)).wrapping();
-    let wide = mosaic::timeline(
+    let pace = Pace {
+        steps: 1,
+        ..Pace::default()
+    };
+    let wide = drawn(
         std::slice::from_ref(&track),
-        &Camera::default(),
-        &Style3d::default(),
-        &STANDARD,
-        &Marks::new(),
         &Layout {
             columns: 13,
             ..Layout::default()
         },
-        1,
-        300.0,
+        &pace,
     );
-    let narrow = mosaic::timeline(
+    let narrow = drawn(
         &[track],
-        &Camera::default(),
-        &Style3d::default(),
-        &STANDARD,
-        &Marks::new(),
         &Layout {
             columns: 5,
             ..Layout::default()
         },
-        1,
-        300.0,
+        &pace,
     );
     assert!(narrow.width < wide.width / 2.0);
     assert!(narrow.height > wide.height * 2.0);
@@ -186,7 +308,7 @@ fn the_two_halves_of_a_meet_land_on_the_same_state() {
     let (forward, backward) = solution.split_at(3);
     // The figure is drawn for a solution; any pair of halves exercises the
     // layout, so what is checked here is where the two walks end up.
-    let tracks = mosaic::meet(&cube, forward, backward, 1);
+    let tracks = mosaic::meet(&cube, forward, backward, 1.0);
     assert_eq!(tracks.len(), 3);
 
     let mut ahead = cube.clone();
@@ -208,7 +330,13 @@ fn the_two_halves_of_a_meet_land_on_the_same_state() {
     );
     // The third row holds the whole solution and waits for the other two.
     assert_eq!(tracks[2].moves.len(), solution.len());
-    assert_eq!(tracks[2].delay, forward.len().max(backward.len()) + 1);
+    assert_eq!(
+        tracks[2].delay,
+        forward.len().max(backward.len()) as f64 + 1.0
+    );
+    // And every row says what it is.
+    let titles: Vec<&str> = tracks.iter().map(|t| t.title.as_str()).collect();
+    assert_eq!(titles, vec!["forwards", "backwards", "together"]);
 }
 
 #[test]
@@ -216,19 +344,8 @@ fn a_meet_runs_until_the_combined_row_is_done() {
     let cube = Cube::solved(3);
     let solution = moves("R U R' U' F2 L D");
     let (forward, backward) = solution.split_at(3);
-    let tracks = mosaic::meet(&cube, forward, backward, 1);
+    let tracks = mosaic::meet(&cube, forward, backward, 1.0);
     let tl = draw(&tracks, STEPS);
-    // The clock runs as long as the slowest track: the combined row, after
-    // its wait. Every slot but the one nothing turns in is drawn in full.
-    let slots = tracks[2].delay + solution.len();
-    assert_eq!(tl.frames.len(), 1 + (slots - 1) * STEPS + 1);
-    let waits: Vec<&str> = tl
-        .frames
-        .iter()
-        .filter(|f| f.label == "wait")
-        .map(|f| f.label.as_str())
-        .collect();
-    assert_eq!(waits, vec!["wait"], "one beat of stillness, drawn once");
     // The first frame shows both ends and nothing of the third row.
     let first = &tl.frames[0].markup;
     assert_eq!(first.matches("<use href=").count(), 3);
@@ -236,6 +353,11 @@ fn a_meet_runs_until_the_combined_row_is_done() {
     let last = &tl.frames.last().unwrap().markup;
     let cells: usize = tracks.iter().map(Track::cells).sum();
     assert_eq!(last.matches("<use href=").count(), cells + 1);
+    // The two halves turn together, so a mid turn frame names both.
+    assert!(
+        tl.frames.iter().any(|f| f.label.split(' ').count() == 2),
+        "a frame of two rows turning at once is labelled with both"
+    );
 }
 
 #[test]

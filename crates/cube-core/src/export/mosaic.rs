@@ -8,10 +8,12 @@
 //! one takes over. So the figure draws itself one cube per move, and a cube's
 //! arrival *is* the move that produced it.
 //!
-//! Several tracks share one clock, which is what draws a search meeting in the
-//! middle: a row walking forwards from the scramble, a row walking backwards
-//! from the solved cube, and a third row that, once those two have met, carries
-//! the whole solution across the grid. [`meet`] lays those three out.
+//! Rows share one clock but need not run at one speed: each carries its own
+//! milliseconds per turn, its own pause on a landed state, and its own start.
+//! That is what draws a search meeting in the middle: a row walking forwards
+//! from the scramble, a row walking backwards from the solved cube, and a
+//! third row that, once those two have met, carries the whole solution across
+//! the grid. [`meet`] lays those three out.
 //!
 //! Every distinct cube drawing is written once into the timeline's backdrop and
 //! placed by reference, so a grid of twenty cubes costs about what a single
@@ -20,32 +22,55 @@
 use super::{Frame, Timeline, ease, escape};
 use crate::cube::Cube;
 use crate::moves::Move;
-use crate::palette::Palette;
+use crate::palette::{Palette, Rgb};
 use crate::render::cube3d::Anim;
 use crate::render::svg::num;
 use crate::render::{Camera, Marks, Style3d, cube3d};
 use std::collections::BTreeMap;
 
-/// One lane of the grid: a cube, the moves that walk away from it, and where
-/// along the grid the states they reach land.
+/// How long a cube rests on a landed state, as a fraction of a turn, when
+/// neither the figure nor the track says.
+const HOLD: f64 = 0.4;
+
+/// The writing is lifted off the sticker outline's near black into gray, so
+/// that it sits under the cubes rather than competing with them. The row
+/// names are the darker of the two, being what the figure is divided by.
+const CAPTION_GRAY: f64 = 1.45;
+const TITLE_GRAY: f64 = 1.3;
+
+/// Times closer together than this are the same moment, in milliseconds.
+const TOGETHER: f64 = 0.5;
+
+/// One lane of the grid: a cube, the moves that walk away from it, where
+/// along the grid the states they reach land, and how fast it all happens.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Track {
     /// The state the first cell holds.
     pub cube: Cube,
-    /// Applied one per slot of the shared clock, in this order.
+    /// Applied one at a time, in this order.
     pub moves: Vec<Move>,
     pub row: usize,
     /// Column the first cube lands in.
     pub col: usize,
     /// Fill leftwards from `col` rather than rightwards.
     pub back: bool,
-    /// Slots of the shared clock to wait before the first cube appears.
-    pub delay: usize,
+    /// Turns of the figure's own pace to wait before the first cube appears.
+    pub delay: f64,
+    /// Milliseconds this row takes over a turn. `None` runs at the figure's
+    /// pace, and a row of its own can crawl while another races.
+    pub ms: Option<f64>,
+    /// Milliseconds this row rests on a state once its turn has landed.
+    pub hold: Option<f64>,
     /// Carry on in the next row when the columns run out.
     pub wrap: bool,
+    /// What to write under the cube each move reaches, in place of the move's
+    /// own name. Short of a name per move, the rest keep theirs.
+    pub labels: Vec<String>,
+    /// A name for the whole row, written in the margin beside it.
+    pub title: String,
     /// Caption under the first cube. Empty writes `start`.
     pub first: String,
-    /// Caption under the last cube. Empty writes the move that reached it.
+    /// Caption added under the last cube, beside the move that reached it.
     pub last: String,
 }
 
@@ -58,8 +83,12 @@ impl Track {
             row: 0,
             col: 0,
             back: false,
-            delay: 0,
+            delay: 0.0,
+            ms: None,
+            hold: None,
             wrap: false,
+            labels: Vec::new(),
+            title: String::new(),
             first: String::new(),
             last: String::new(),
         }
@@ -82,14 +111,35 @@ impl Track {
         self
     }
 
-    /// Hold still for this many slots before the first cube appears.
-    pub fn after(mut self, slots: usize) -> Self {
-        self.delay = slots;
+    /// Hold still for this many turns of the figure's pace before starting.
+    pub fn after(mut self, turns: f64) -> Self {
+        self.delay = turns;
+        self
+    }
+
+    /// Run this row at its own speed: `ms` over a turn, `hold` resting on the
+    /// state it lands.
+    pub fn paced(mut self, ms: Option<f64>, hold: Option<f64>) -> Self {
+        self.ms = ms;
+        self.hold = hold;
         self
     }
 
     pub fn wrapping(mut self) -> Self {
         self.wrap = true;
+        self
+    }
+
+    /// Name the row, which is written in the margin beside it.
+    pub fn titled(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    /// Write these under the cubes the moves reach, one per move, in place of
+    /// the move names.
+    pub fn labelled(mut self, labels: Vec<String>) -> Self {
+        self.labels = labels;
         self
     }
 
@@ -102,11 +152,6 @@ impl Track {
     /// Cells it fills: one for the state it starts from, one per move.
     pub fn cells(&self) -> usize {
         self.moves.len() + 1
-    }
-
-    /// The slot its last move lands in.
-    fn span(&self) -> usize {
-        self.delay + self.moves.len()
     }
 
     /// Where cell `i` sits, as `(row, column)`.
@@ -123,10 +168,10 @@ impl Track {
         }
     }
 
-    /// The caption cell `i` carries: the move that reached it, and the note
-    /// the track puts on its first or last cell, which is what names the
-    /// column two searches met in.
-    fn caption(&self, i: usize) -> String {
+    /// The caption cell `i` carries: what the move that reached it is called,
+    /// and the note the track puts on its first or last cell, which is what
+    /// names the column two searches met in.
+    fn caption(&self, i: usize, numbered: bool) -> String {
         let note = if i == 0 && !self.first.is_empty() {
             self.first.as_str()
         } else if i + 1 == self.cells() && !self.last.is_empty() {
@@ -134,13 +179,102 @@ impl Track {
         } else {
             ""
         };
-        match i {
-            // The first cell is reached by no move, so the note is all of it.
-            0 if note.is_empty() => "start".to_string(),
-            0 => note.to_string(),
-            _ if note.is_empty() => format!("{i}. {}", self.moves[i - 1].name),
-            _ => format!("{i}. {} \u{00b7} {note}", self.moves[i - 1].name),
+        // The first cell is reached by no move, so the note is all of it.
+        if i == 0 {
+            return if note.is_empty() {
+                "start".to_string()
+            } else {
+                note.to_string()
+            };
         }
+        let name = match self.labels.get(i - 1) {
+            Some(given) if !given.is_empty() => given.clone(),
+            _ => self.moves[i - 1].name.clone(),
+        };
+        let base = if numbered {
+            format!("{i}. {name}")
+        } else {
+            name
+        };
+        if note.is_empty() {
+            base
+        } else {
+            format!("{base} \u{b7} {note}")
+        }
+    }
+}
+
+/// How fast the figure runs, and how finely it is drawn.
+#[derive(Clone, Copy, Debug)]
+pub struct Pace {
+    /// Milliseconds a turn takes.
+    pub ms: f64,
+    /// Milliseconds a cube rests on a state once its turn has landed, which is
+    /// what makes a state readable before the next one starts arriving.
+    /// `None` rests for a little under half a turn.
+    pub hold: Option<f64>,
+    /// Frames per turn: 1 gives the states only, 6 to 10 a smooth turn.
+    pub steps: usize,
+}
+
+impl Default for Pace {
+    fn default() -> Self {
+        Self {
+            ms: 420.0,
+            hold: None,
+            steps: 6,
+        }
+    }
+}
+
+impl Pace {
+    fn rest(&self) -> f64 {
+        self.hold.unwrap_or(self.ms * HOLD)
+    }
+
+    /// A turn and the rest after it: the unit a track's `delay` counts.
+    fn beat(&self) -> f64 {
+        self.ms + self.rest()
+    }
+}
+
+/// When a track turns, in milliseconds from the start of the figure.
+///
+/// A track appears, rests, turns, rests, turns, and so on, so the move it is
+/// on is read straight off the time: cell 0 is there from `start`, and move
+/// `i` swings between `turn_start` and `turn_end`.
+#[derive(Clone, Copy, Debug)]
+struct Clock {
+    start: f64,
+    ms: f64,
+    hold: f64,
+}
+
+impl Clock {
+    fn of(track: &Track, pace: &Pace) -> Self {
+        let ms = track.ms.unwrap_or(pace.ms).max(1.0);
+        Self {
+            start: track.delay.max(0.0) * pace.beat(),
+            ms,
+            hold: track.hold.or(pace.hold).unwrap_or(ms * HOLD).max(0.0),
+        }
+    }
+
+    fn beat(&self) -> f64 {
+        self.ms + self.hold
+    }
+
+    fn turn_start(&self, i: usize) -> f64 {
+        self.start + self.hold + i as f64 * self.beat()
+    }
+
+    fn turn_end(&self, i: usize) -> f64 {
+        self.start + (i + 1) as f64 * self.beat()
+    }
+
+    /// When the track is done, the rest on its last state included.
+    fn end(&self, moves: usize) -> f64 {
+        self.start + self.hold + moves as f64 * self.beat()
     }
 }
 
@@ -153,6 +287,8 @@ pub struct Layout {
     pub pad: f64,
     /// Room under each cube for its caption, as a fraction of a cube.
     pub caption: f64,
+    /// Number the captions, as `3. R`, rather than writing the move alone.
+    pub numbered: bool,
     /// Outline the cells no cube has reached yet, so the grid reads as a grid
     /// from the first frame.
     pub ghosts: bool,
@@ -164,6 +300,7 @@ impl Default for Layout {
             columns: 8,
             pad: 0.04,
             caption: 0.12,
+            numbered: true,
             ghosts: true,
         }
     }
@@ -173,29 +310,50 @@ impl Default for Layout {
 struct Grid {
     pad: f64,
     caption: f64,
+    /// Margin down the left for the row names, 0 when no row has one.
+    gutter: f64,
     cell_w: f64,
     cell_h: f64,
 }
 
 impl Grid {
-    fn of(layout: &Layout, st: &Style3d) -> Self {
+    fn of(layout: &Layout, st: &Style3d, tracks: &[Track]) -> Self {
         let pad = st.size * layout.pad;
         let caption = st.size * layout.caption;
+        let font = caption * 0.62;
+        let widest = tracks
+            .iter()
+            .map(|t| text_width(&t.title, font))
+            .fold(0.0, f64::max);
         Self {
             pad,
             caption,
+            gutter: if widest > 0.0 {
+                widest + 2.0 * pad
+            } else {
+                0.0
+            },
             cell_w: st.size + pad,
             cell_h: st.size + caption + pad,
         }
     }
 
     fn x(&self, col: usize) -> f64 {
-        self.pad + col as f64 * self.cell_w
+        self.gutter + self.pad + col as f64 * self.cell_w
     }
 
     fn y(&self, row: usize) -> f64 {
         self.pad + row as f64 * self.cell_h
     }
+}
+
+/// Room a run of text needs. The figure only has to leave enough, so this errs
+/// generous.
+fn text_width(s: &str, font: f64) -> f64 {
+    if s.is_empty() {
+        return 0.0;
+    }
+    0.58 * font * s.chars().count() as f64
 }
 
 /// One cell of one track, worked out: the state it holds and where it sits.
@@ -208,14 +366,15 @@ struct Cell {
     caption: String,
 }
 
-/// A track with its cells placed.
+/// A track with its cells placed and its clock set.
 struct Lane<'a> {
     track: &'a Track,
     cells: Vec<Cell>,
+    clock: Clock,
 }
 
 impl<'a> Lane<'a> {
-    fn of(track: &'a Track, layout: &Layout, grid: &Grid) -> Self {
+    fn of(track: &'a Track, layout: &Layout, grid: &Grid, pace: &Pace) -> Self {
         let mut state = track.cube.clone();
         let mut cells = Vec::with_capacity(track.cells());
         for i in 0..track.cells() {
@@ -229,23 +388,50 @@ impl<'a> Lane<'a> {
                 col,
                 x: grid.x(col),
                 y: grid.y(row),
-                caption: track.caption(i),
+                caption: track.caption(i, layout.numbered),
             });
         }
-        Self { track, cells }
+        Self {
+            track,
+            cells,
+            clock: Clock::of(track, pace),
+        }
     }
 
-    /// Moves landed by the start of `slot`, and `None` before the track opens.
-    fn landed(&self, slot: usize) -> Option<usize> {
-        let done = slot.checked_sub(self.track.delay)?;
-        Some(done.min(self.track.moves.len()))
+    /// Where the track has got to at `t`: the moves landed, and the one
+    /// turning with how far round it is. `None` before the track opens.
+    fn at(&self, t: f64) -> Option<(usize, Option<(usize, f64)>)> {
+        let c = &self.clock;
+        if t + TOGETHER < c.start {
+            return None;
+        }
+        let k = self.track.moves.len();
+        let i = ((t - c.start) / c.beat()).floor().max(0.0) as usize;
+        if i >= k {
+            return Some((k, None));
+        }
+        let into = t - c.start - i as f64 * c.beat();
+        let turned = ((into - c.hold) / c.ms).clamp(0.0, 1.0);
+        match turned {
+            u if u <= 0.0 => Some((i, None)),
+            u if u >= 1.0 => Some((i + 1, None)),
+            u => Some((i, Some((i, u)))),
+        }
     }
 
-    /// The move turning during `slot`, if any.
-    fn turning(&self, slot: usize) -> Option<(&Move, &Cell, &Cell)> {
-        let done = slot.checked_sub(self.track.delay)?;
-        let m = self.track.moves.get(done)?;
-        Some((m, &self.cells[done], &self.cells[done + 1]))
+    /// The move turning at `t`, if any.
+    fn turning(&self, t: f64) -> Option<&Move> {
+        match self.at(t) {
+            Some((_, Some((i, _)))) => self.track.moves.get(i),
+            _ => None,
+        }
+    }
+
+    /// The move that lands exactly at `t`, if any.
+    fn landing(&self, t: f64) -> Option<&Move> {
+        (0..self.track.moves.len())
+            .find(|i| (self.clock.turn_end(*i) - t).abs() < TOGETHER)
+            .and_then(|i| self.track.moves.get(i))
     }
 }
 
@@ -301,38 +487,66 @@ struct Painter<'a> {
 }
 
 impl Painter<'_> {
+    fn font(&self) -> f64 {
+        self.grid.caption * 0.62
+    }
+
     /// A cell's drawing, placed at the cell's own origin: the cube, still or
     /// mid turn, with its caption underneath.
     fn cell(&mut self, cube: &Cube, anim: Option<&Anim>, caption: &str) -> String {
         let body = format!(
             "{}{}",
             cube3d::inner(cube, self.cam, anim, self.st, self.pal, self.marks),
-            self.text(caption),
+            self.text(
+                caption,
+                self.st.size * 0.5,
+                self.st.size + self.grid.caption * 0.72,
+                "middle",
+                self.pal.edge.shade(CAPTION_GRAY),
+            ),
         );
         self.gallery.intern(body)
     }
 
-    fn text(&self, caption: &str) -> String {
-        if caption.is_empty() {
+    fn text(&self, s: &str, x: f64, y: f64, anchor: &str, fill: Rgb) -> String {
+        if s.is_empty() {
             return String::new();
         }
         format!(
-            "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" \
+            "<text x=\"{}\" y=\"{}\" text-anchor=\"{anchor}\" \
              font-family=\"ui-sans-serif,system-ui,sans-serif\" font-size=\"{}\" \
              fill=\"{}\">{}</text>",
-            num(self.st.size * 0.5),
-            num(self.st.size + self.grid.caption * 0.72),
-            num(self.grid.caption * 0.62),
-            self.pal.edge.hex(),
-            escape(caption)
+            num(x),
+            num(y),
+            num(self.font()),
+            fill.hex(),
+            escape(s)
         )
     }
 
-    /// The outlines of the cells no cube has reached by the start of `slot`.
-    fn ghosts(&mut self, lanes: &[Lane], slot: usize) -> String {
+    /// The row names, down the margin. They do not move, so they are drawn
+    /// once behind the frames rather than in every one of them.
+    fn titles(&self, lanes: &[Lane]) -> String {
+        lanes
+            .iter()
+            .filter(|lane| !lane.track.title.is_empty())
+            .map(|lane| {
+                self.text(
+                    &lane.track.title,
+                    self.grid.gutter - self.grid.pad,
+                    self.grid.y(lane.track.row) + self.st.size * 0.5 + self.font() * 0.35,
+                    "end",
+                    self.pal.edge.shade(TITLE_GRAY),
+                )
+            })
+            .collect()
+    }
+
+    /// The outlines of the cells no cube has reached at `t`.
+    fn ghosts(&mut self, lanes: &[Lane], t: f64) -> String {
         let mut taken = BTreeMap::new();
         for lane in lanes {
-            let Some(landed) = lane.landed(slot) else {
+            let Some((landed, _)) = lane.at(t) else {
                 continue;
             };
             for cell in &lane.cells[..=landed] {
@@ -362,7 +576,7 @@ impl Painter<'_> {
                     num(side),
                     num(side),
                     num(self.st.size * 0.06),
-                    self.pal.edge.hex(),
+                    self.pal.edge.shade(CAPTION_GRAY).hex(),
                     num(self.st.stroke),
                     num(dash),
                     num(dash * 1.4),
@@ -380,16 +594,15 @@ fn fade(t: f64) -> f64 {
     0.15 + 0.85 * ease(t / 0.65)
 }
 
-/// One frame: every cube that has landed, plus the one turning its way in.
-/// `t` is how far through the slot the frame sits; 0 draws the still the slot
-/// starts from.
-fn compose(lanes: &[Lane], slot: usize, t: f64, ghosts: Option<&str>, p: &mut Painter) -> String {
+/// One frame: the grid as it stands at `t`, with every cube that has landed
+/// and the ones turning their way in.
+fn compose(lanes: &[Lane], t: f64, ghosts: Option<&str>, p: &mut Painter) -> String {
     let mut s = String::new();
     if let Some(id) = ghosts {
         s.push_str(&format!("<use href=\"#{id}\"/>"));
     }
     for lane in lanes {
-        let Some(landed) = lane.landed(slot) else {
+        let Some((landed, turning)) = lane.at(t) else {
             continue;
         };
         for cell in &lane.cells[..=landed] {
@@ -400,41 +613,74 @@ fn compose(lanes: &[Lane], slot: usize, t: f64, ghosts: Option<&str>, p: &mut Pa
                 num(cell.y)
             ));
         }
-        if t <= 0.0 {
-            continue;
-        }
         // The arriving cube is the one before the move, turning: the layer
         // swings and the whole thing fades up, in the cell it is on its way to.
-        if let Some((m, from, to)) = lane.turning(slot) {
+        if let Some((i, u)) = turning {
+            let m = &lane.track.moves[i];
+            let (from, to) = (&lane.cells[i], &lane.cells[i + 1]);
             let anim = Anim {
                 turn: m.turn,
-                angle: m.turn.angle() * ease(t),
+                angle: m.turn.angle() * ease(u),
             };
             let id = p.cell(&from.state, Some(&anim), &to.caption);
             s.push_str(&format!(
                 "<use href=\"#{id}\" x=\"{}\" y=\"{}\" opacity=\"{}\"/>",
                 num(to.x),
                 num(to.y),
-                num(fade(t))
+                num(fade(u))
             ));
         }
     }
     s
 }
 
-/// What is turning during `slot`, written out: one name per track, so a frame
-/// of a two sided search is labelled with both halves.
-fn label(lanes: &[Lane], slot: usize) -> String {
-    let names: Vec<&str> = lanes
+/// What a frame is of: whatever is turning while it is up, or, when nothing
+/// is, whatever has just landed. One name per row, so a frame of a two sided
+/// search is labelled with both halves.
+fn label(lanes: &[Lane], start: f64, middle: f64) -> String {
+    let turning: Vec<&str> = lanes
         .iter()
-        .filter_map(|lane| lane.turning(slot).map(|(m, _, _)| m.name.as_str()))
+        .filter_map(|lane| lane.turning(middle).map(|m| m.name.as_str()))
         .collect();
-    names.join(" ")
+    if !turning.is_empty() {
+        return turning.join(" ");
+    }
+    let landed: Vec<&str> = lanes
+        .iter()
+        .filter_map(|lane| lane.landing(start).map(|m| m.name.as_str()))
+        .collect();
+    if !landed.is_empty() {
+        return landed.join(" ");
+    }
+    "wait".to_string()
 }
 
-/// Draw the tracks into a grid, one cube per move. `steps` frames per move: 1
-/// gives the states only, 6 to 10 give a smooth turn.
-#[allow(clippy::too_many_arguments)]
+/// The moments the figure has to draw: every turn sampled `steps` times, and
+/// every arrival and landing, which are what the player steps between.
+fn moments(lanes: &[Lane], steps: usize) -> Vec<(f64, bool)> {
+    let mut marks = vec![(0.0, true)];
+    for lane in lanes {
+        marks.push((lane.clock.start, true));
+        for i in 0..lane.track.moves.len() {
+            let (from, to) = (lane.clock.turn_start(i), lane.clock.turn_end(i));
+            for s in 0..steps {
+                marks.push((from + (to - from) * s as f64 / steps as f64, false));
+            }
+            marks.push((to, true));
+        }
+    }
+    marks.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut out: Vec<(f64, bool)> = Vec::with_capacity(marks.len());
+    for (t, is_state) in marks {
+        match out.last_mut() {
+            Some(last) if t - last.0 < TOGETHER => last.1 |= is_state,
+            _ => out.push((t, is_state)),
+        }
+    }
+    out
+}
+
+/// Draw the tracks into a grid, one cube per move.
 pub fn timeline(
     tracks: &[Track],
     cam: &Camera,
@@ -442,16 +688,17 @@ pub fn timeline(
     pal: &Palette,
     marks: &Marks,
     layout: &Layout,
-    steps: usize,
-    ms_per_move: f64,
+    pace: &Pace,
 ) -> Timeline {
-    let steps = steps.max(1);
-    let grid = Grid::of(layout, st);
+    let pace = Pace {
+        steps: pace.steps.max(1),
+        ..*pace
+    };
+    let grid = Grid::of(layout, st, tracks);
     let lanes: Vec<Lane> = tracks
         .iter()
-        .map(|track| Lane::of(track, layout, &grid))
+        .map(|track| Lane::of(track, layout, &grid, &pace))
         .collect();
-    let slots = tracks.iter().map(Track::span).max().unwrap_or(0);
     let rows = lanes
         .iter()
         .flat_map(|l| l.cells.iter().map(|c| c.row + 1))
@@ -462,6 +709,10 @@ pub fn timeline(
         .flat_map(|l| l.cells.iter().map(|c| c.col + 1))
         .max()
         .unwrap_or(1);
+    let over = lanes
+        .iter()
+        .map(|l| l.clock.end(l.track.moves.len()))
+        .fold(0.0, f64::max);
 
     let mut p = Painter {
         cam,
@@ -471,62 +722,44 @@ pub fn timeline(
         grid: &grid,
         gallery: Gallery::new(format!("m{:x}", fingerprint(tracks))),
     };
-    // One outline layer per slot: the set of waiting cells only changes when a
-    // move lands, so every frame of a slot shares the same one.
-    let ghosts: Vec<Option<String>> = (0..=slots)
-        .map(|slot| layout.ghosts.then(|| p.ghosts(&lanes, slot)))
-        .collect();
-    let ghost_of = |slot: usize| ghosts[slot.min(slots)].as_deref();
-
-    let mut frames = vec![Frame {
-        markup: compose(&lanes, 0, 0.0, ghost_of(0), &mut p),
-        label: "start".to_string(),
-        ms: ms_per_move.max(1.0),
-        is_state: true,
-    }];
-    for slot in 0..slots {
-        let name = label(&lanes, slot);
-        // A slot nothing turns in is one beat of stillness rather than a run
-        // of identical frames: it is where a delayed row waits its turn.
-        let waiting = name.is_empty();
-        if !waiting {
-            // The frames before the last are mid turn; the last one is every
-            // move of the slot landed, which is the still the next slot
-            // starts from.
-            for s in 1..steps {
-                frames.push(Frame {
-                    markup: compose(
-                        &lanes,
-                        slot,
-                        s as f64 / steps as f64,
-                        ghost_of(slot),
-                        &mut p,
-                    ),
-                    label: name.clone(),
-                    ms: ms_per_move / steps as f64,
-                    is_state: false,
-                });
-            }
+    let moments = moments(&lanes, pace.steps);
+    let mut frames: Vec<Frame> = Vec::with_capacity(moments.len());
+    for (i, &(t, is_state)) in moments.iter().enumerate() {
+        // A frame is up until the next moment, and the last one rests on the
+        // finished figure for a beat before it all starts again.
+        let ms = match moments.get(i + 1) {
+            Some(&(next, _)) => (next - t).max(1.0),
+            None => (over - t).max(pace.beat()),
+        };
+        let ghosts = layout.ghosts.then(|| p.ghosts(&lanes, t));
+        let markup = compose(&lanes, t, ghosts.as_deref(), &mut p);
+        // Nothing on screen changed, so this is the same frame held longer:
+        // which is what a rest on a landed state is, and what a row waiting
+        // for another to finish looks like.
+        if let Some(last) = frames.last_mut()
+            && last.markup == markup
+        {
+            last.ms += ms;
+            last.is_state |= is_state;
+            continue;
         }
         frames.push(Frame {
-            markup: compose(&lanes, slot + 1, 0.0, ghost_of(slot + 1), &mut p),
-            label: if waiting { "wait".to_string() } else { name },
-            ms: if waiting {
-                ms_per_move
+            markup,
+            label: if i == 0 {
+                "start".to_string()
             } else {
-                ms_per_move / steps as f64
+                label(&lanes, t, t + ms * 0.5)
             },
-            is_state: true,
+            ms,
+            is_state,
         });
     }
-    if let Some(last) = frames.last_mut() {
-        last.ms = ms_per_move.max(1.0);
-    }
+    let backdrop = format!("{}{}", p.gallery.defs(), p.titles(&lanes));
     Timeline {
         frames,
-        width: cols as f64 * grid.cell_w + grid.pad,
+        width: grid.gutter + cols as f64 * grid.cell_w + grid.pad,
         height: rows as f64 * grid.cell_h + grid.pad,
-        backdrop: p.gallery.defs(),
+        backdrop,
     }
 }
 
@@ -538,8 +771,11 @@ pub fn timeline(
 /// rightwards from `cube`, the second walks `backward` leftwards from the state
 /// the whole solution reaches, undoing one move at a time, and the two land on
 /// the same state in the same column: that column is where the searches met.
-/// Once they have, a third row carries the whole solution across the grid.
-pub fn meet(cube: &Cube, forward: &[Move], backward: &[Move], pause: usize) -> Vec<Track> {
+/// Once they have, a third row carries the whole solution across.
+///
+/// The rows are named forwards, backwards and together; rename them by setting
+/// `title` on what comes back.
+pub fn meet(cube: &Cube, forward: &[Move], backward: &[Move], pause: f64) -> Vec<Track> {
     let mut target = cube.clone();
     target.apply_moves(forward);
     target.apply_moves(backward);
@@ -550,17 +786,20 @@ pub fn meet(cube: &Cube, forward: &[Move], backward: &[Move], pause: usize) -> V
     };
     let whole: Vec<Move> = forward.iter().chain(backward).cloned().collect();
     let columns = whole.len() + 1;
-    let wait = forward.len().max(backward.len()) + pause;
+    let wait = forward.len().max(backward.len()) as f64 + pause;
     vec![
         Track::new(cube.clone(), forward.to_vec())
             .at(0, 0)
+            .titled("forwards")
             .captioned("scrambled", "meet"),
         Track::rewound(target, backward)
             .at(1, columns - 1)
+            .titled("backwards")
             .captioned(end, "meet"),
         Track::new(cube.clone(), whole)
             .at(2, 0)
             .after(wait)
+            .titled("together")
             .captioned("scrambled", end),
     ]
 }
@@ -579,6 +818,7 @@ fn fingerprint(tracks: &[Track]) -> u64 {
         for m in &t.moves {
             eat(m.name.as_bytes());
         }
+        eat(t.title.as_bytes());
         eat(&[t.row as u8, t.col as u8, t.delay as u8, t.back as u8]);
     }
     h

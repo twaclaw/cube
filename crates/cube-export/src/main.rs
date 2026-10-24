@@ -39,7 +39,11 @@ usage: cube-export [options] > out.svg
  grids on the clock (--mode mosaic | mosaic-player)
       --meet WORD       second half of the solution: draws the two sided
                         search, --seq forwards and this one backwards
-      --pause N         slots to wait before the combined row (default 1)
+      --pause N         turns to wait before the combined row (default 1)
+      --hold N          milliseconds a landed state is held before the next
+                        turn starts (default: a little under half a turn)
+      --titles LIST     names for the rows, e.g. forwards,backwards,together
+      --unnumbered      write the move alone under each cube, unnumbered
       --no-ghosts       leave the cells a cube has yet to reach blank
 
  trees (--mode table-tree | search-tree)
@@ -80,7 +84,10 @@ struct Args {
     size: f64,
     flat: bool,
     meet: String,
-    pause: usize,
+    pause: f64,
+    hold: Option<f64>,
+    titles: String,
+    numbered: bool,
     ghosts: bool,
     background: Option<String>,
     out: Option<String>,
@@ -111,7 +118,10 @@ impl Default for Args {
             size: 300.0,
             flat: false,
             meet: String::new(),
-            pause: 1,
+            pause: 1.0,
+            hold: None,
+            titles: String::new(),
+            numbered: true,
             ghosts: true,
             background: None,
             out: None,
@@ -166,7 +176,10 @@ fn run() -> Result<(), String> {
             "--size-px" => a.size = value()?.parse().map_err(|_| "bad size")?,
             "--flat" => a.flat = true,
             "--meet" => a.meet = value()?,
-            "--pause" => a.pause = value()?.parse().map_err(|_| "bad slot count")?,
+            "--pause" => a.pause = value()?.parse().map_err(|_| "bad turn count")?,
+            "--hold" => a.hold = Some(value()?.parse().map_err(|_| "bad duration")?),
+            "--titles" => a.titles = value()?,
+            "--unnumbered" => a.numbered = false,
             "--no-ghosts" => a.ghosts = false,
             "--background" => a.background = Some(value()?),
             "--coord" => a.coord = value()?,
@@ -246,12 +259,16 @@ fn run() -> Result<(), String> {
             let tracks = mosaic_tracks(&cube, &moves, &a)?;
             let layout = mosaic::Layout {
                 columns: a.columns,
+                numbered: a.numbered,
                 ghosts: a.ghosts,
                 ..mosaic::Layout::default()
             };
-            let tl = mosaic::timeline(
-                &tracks, &cam, &st, &STANDARD, &marks, &layout, a.steps, a.ms,
-            );
+            let pace = mosaic::Pace {
+                ms: a.ms,
+                hold: a.hold,
+                steps: a.steps,
+            };
+            let tl = mosaic::timeline(&tracks, &cam, &st, &STANDARD, &marks, &layout, &pace);
             let word = tracks
                 .last()
                 .map(|t| notation::format(&t.moves))
@@ -296,13 +313,20 @@ fn run() -> Result<(), String> {
 /// The tracks a mosaic draws: the sequence on its own, filling a grid, or the
 /// three rows of a two sided search when `--meet` gives the second half.
 fn mosaic_tracks(cube: &Cube, moves: &[Move], a: &Args) -> Result<Vec<mosaic::Track>, String> {
-    if a.meet.trim().is_empty() {
-        return Ok(vec![
-            mosaic::Track::new(cube.clone(), moves.to_vec()).wrapping(),
-        ]);
+    let mut tracks = if a.meet.trim().is_empty() {
+        vec![mosaic::Track::new(cube.clone(), moves.to_vec()).wrapping()]
+    } else {
+        let backward = notation::parse(a.n, &a.meet).map_err(|e| e.to_string())?;
+        mosaic::meet(cube, moves, &backward, a.pause)
+    };
+    // --titles renames the rows in order; a blank one keeps the name the
+    // figure gave itself.
+    for (track, title) in tracks.iter_mut().zip(a.titles.split(',')) {
+        if !title.trim().is_empty() {
+            track.title = title.trim().to_string();
+        }
     }
-    let backward = notation::parse(a.n, &a.meet).map_err(|e| e.to_string())?;
-    Ok(mosaic::meet(cube, moves, &backward, a.pause))
+    Ok(tracks)
 }
 
 /// `1,3,8-11` into facelets.

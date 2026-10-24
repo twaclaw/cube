@@ -659,7 +659,8 @@ fn player(cube: &Cube, word: &str, steps: usize, ms: f64, title: &str) -> PyResu
 
 /// The settings a track in a mosaic understands.
 const TRACK_KEYS: &[&str] = &[
-    "cube", "word", "row", "col", "back", "delay", "wrap", "first", "last",
+    "cube", "word", "row", "col", "back", "delay", "ms", "hold", "wrap", "labels", "title",
+    "first", "last",
 ];
 
 fn dict_text(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<String> {
@@ -680,6 +681,28 @@ fn dict_flag(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<bool> {
     match dict.get_item(key)? {
         Some(value) => value.extract(),
         None => Ok(false),
+    }
+}
+
+fn dict_number(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<f64> {
+    match dict.get_item(key)? {
+        Some(value) => value.extract(),
+        None => Ok(0.0),
+    }
+}
+
+/// A duration the track may leave to the figure.
+fn dict_ms(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<f64>> {
+    match dict.get_item(key)? {
+        Some(value) if !value.is_none() => value.extract().map(Some),
+        _ => Ok(None),
+    }
+}
+
+fn dict_list(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<Vec<String>> {
+    match dict.get_item(key)? {
+        Some(value) => value.extract(),
+        None => Ok(Vec::new()),
     }
 }
 
@@ -717,8 +740,12 @@ fn mosaic_track(item: &Bound<'_, PyAny>) -> PyResult<export::mosaic::Track> {
     };
     track.row = dict_count(dict, "row")?;
     track.col = dict_count(dict, "col")?;
-    track.delay = dict_count(dict, "delay")?;
+    track.delay = dict_number(dict, "delay")?;
+    track.ms = dict_ms(dict, "ms")?;
+    track.hold = dict_ms(dict, "hold")?;
     track.wrap = dict_flag(dict, "wrap")?;
+    track.labels = dict_list(dict, "labels")?;
+    track.title = dict_text(dict, "title")?;
     track.first = dict_text(dict, "first")?;
     track.last = dict_text(dict, "last")?;
     if back && track.col < track.moves.len() {
@@ -738,9 +765,10 @@ fn mosaic_plan(
     word: &str,
     tracks: Option<&Bound<'_, PyList>>,
     meet: Option<&str>,
-    pause: usize,
+    pause: f64,
+    titles: Option<Vec<String>>,
 ) -> PyResult<(Vec<export::mosaic::Track>, String)> {
-    if let Some(list) = tracks {
+    let (mut rows, caption) = if let Some(list) = tracks {
         let rows = list
             .iter()
             .map(|item| mosaic_track(&item))
@@ -750,27 +778,36 @@ fn mosaic_plan(
             .max_by_key(|t| t.moves.len())
             .map(|t| notation::format(&t.moves))
             .unwrap_or_default();
-        return Ok((rows, longest));
-    }
-    let cube = cube.ok_or_else(|| {
-        PyValueError::new_err("a mosaic wants a cube and a maneuver, or a list of tracks")
-    })?;
-    let n = cube.inner.n();
-    let forward = parse_moves(n, word)?;
-    match meet {
-        Some(second) => {
-            let backward = parse_moves(n, second)?;
-            let whole = notation::format(&[forward.clone(), backward.clone()].concat());
-            Ok((
-                export::mosaic::meet(&cube.inner, &forward, &backward, pause),
-                whole,
-            ))
+        (rows, longest)
+    } else {
+        let cube = cube.ok_or_else(|| {
+            PyValueError::new_err("a mosaic wants a cube and a maneuver, or a list of tracks")
+        })?;
+        let n = cube.inner.n();
+        let forward = parse_moves(n, word)?;
+        match meet {
+            Some(second) => {
+                let backward = parse_moves(n, second)?;
+                let whole = notation::format(&[forward.clone(), backward.clone()].concat());
+                (
+                    export::mosaic::meet(&cube.inner, &forward, &backward, pause),
+                    whole,
+                )
+            }
+            None => (
+                vec![export::mosaic::Track::new(cube.inner.clone(), forward).wrapping()],
+                word.trim().to_string(),
+            ),
         }
-        None => Ok((
-            vec![export::mosaic::Track::new(cube.inner.clone(), forward).wrapping()],
-            word.trim().to_string(),
-        )),
+    };
+    // Row names given here win over the ones the figure chose; a blank one
+    // leaves that row as it was.
+    for (row, title) in rows.iter_mut().zip(titles.unwrap_or_default()) {
+        if !title.is_empty() {
+            row.title = title;
+        }
     }
+    Ok((rows, caption))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -779,16 +816,19 @@ fn mosaic_timeline(
     word: &str,
     tracks: Option<&Bound<'_, PyList>>,
     meet: Option<&str>,
-    pause: usize,
+    pause: f64,
+    titles: Option<Vec<String>>,
     columns: usize,
     steps: usize,
     ms: f64,
+    hold: Option<f64>,
     size: f64,
     yaw: f64,
     pitch: f64,
+    numbered: bool,
     ghosts: bool,
 ) -> PyResult<(export::Timeline, String)> {
-    let (rows, caption) = mosaic_plan(cube, word, tracks, meet, pause)?;
+    let (rows, caption) = mosaic_plan(cube, word, tracks, meet, pause, titles)?;
     let camera = Camera {
         yaw,
         pitch,
@@ -801,9 +841,11 @@ fn mosaic_timeline(
     };
     let layout = export::mosaic::Layout {
         columns: columns.max(1),
+        numbered,
         ghosts,
         ..export::mosaic::Layout::default()
     };
+    let pace = export::mosaic::Pace { ms, hold, steps };
     let tl = export::mosaic::timeline(
         &rows,
         &camera,
@@ -811,8 +853,7 @@ fn mosaic_timeline(
         &STANDARD,
         &Marks::new(),
         &layout,
-        steps,
-        ms,
+        &pace,
     );
     Ok((tl, caption))
 }
@@ -828,63 +869,80 @@ fn mosaic_timeline(
 /// carries the whole solution across; or `tracks` to place the rows yourself:
 ///
 ///     [{"cube": c, "word": "R U", "row": 0, "col": 0, "back": False,
-///       "delay": 0, "wrap": False, "first": "scrambled", "last": "meet"}]
+///       "delay": 0, "ms": None, "hold": None, "wrap": False,
+///       "labels": ["one", "two"], "title": "forwards",
+///       "first": "scrambled", "last": "meet"}]
 ///
 /// A backward track is given the state its moves arrive at and undoes them one
 /// at a time, filling leftwards from `col`. `delay` holds a row still for that
-/// many moves of the shared clock, which is how a row waits for two others to
-/// finish.
+/// many turns of the figure's pace, which is how a row waits for two others to
+/// finish, and a row that sets its own `ms` and `hold` runs at its own speed
+/// while sharing the clock.
+///
+/// `labels` writes something of your own under the cube each move reaches, in
+/// place of the move's name, and `title` names the whole row in the margin
+/// beside it. `titles` names the rows of a figure you did not build by hand.
+/// `ms` is how long a turn takes and `hold` how long a landed state is left up
+/// before the next turn starts.
 #[pyfunction]
-#[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1, columns=8,
-                    steps=6, ms=420.0, size=160.0, yaw=38.0, pitch=24.0, ghosts=true,
-                    background=None))]
+#[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1.0, titles=None,
+                    columns=8, steps=6, ms=420.0, hold=None, size=160.0, yaw=38.0,
+                    pitch=24.0, numbered=true, ghosts=true, background=None))]
 #[allow(clippy::too_many_arguments)]
 fn mosaic(
     cube: Option<&Cube>,
     word: &str,
     tracks: Option<&Bound<'_, PyList>>,
     meet: Option<&str>,
-    pause: usize,
+    pause: f64,
+    titles: Option<Vec<String>>,
     columns: usize,
     steps: usize,
     ms: f64,
+    hold: Option<f64>,
     size: f64,
     yaw: f64,
     pitch: f64,
+    numbered: bool,
     ghosts: bool,
     background: Option<&str>,
 ) -> PyResult<Drawing> {
     let (tl, _) = mosaic_timeline(
-        cube, word, tracks, meet, pause, columns, steps, ms, size, yaw, pitch, ghosts,
+        cube, word, tracks, meet, pause, titles, columns, steps, ms, hold, size, yaw, pitch,
+        numbered, ghosts,
     )?;
     Ok(Drawing::svg_of(export::animated_svg(&tl, background)))
 }
 
 /// The same grid as `mosaic`, as a self contained HTML page with play, step
-/// and scrub. The arrows step one move of the clock, so a two sided figure
-/// steps both of its rows at once.
+/// and scrub. The arrows step from one landed state to the next, so a two
+/// sided figure steps both of its rows at once.
 #[pyfunction]
-#[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1, columns=8,
-                    steps=6, ms=420.0, size=160.0, yaw=38.0, pitch=24.0, ghosts=true,
-                    title="Rubik's cube"))]
+#[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1.0, titles=None,
+                    columns=8, steps=6, ms=420.0, hold=None, size=160.0, yaw=38.0,
+                    pitch=24.0, numbered=true, ghosts=true, title="Rubik's cube"))]
 #[allow(clippy::too_many_arguments)]
 fn mosaic_player(
     cube: Option<&Cube>,
     word: &str,
     tracks: Option<&Bound<'_, PyList>>,
     meet: Option<&str>,
-    pause: usize,
+    pause: f64,
+    titles: Option<Vec<String>>,
     columns: usize,
     steps: usize,
     ms: f64,
+    hold: Option<f64>,
     size: f64,
     yaw: f64,
     pitch: f64,
+    numbered: bool,
     ghosts: bool,
     title: &str,
 ) -> PyResult<Drawing> {
     let (tl, caption) = mosaic_timeline(
-        cube, word, tracks, meet, pause, columns, steps, ms, size, yaw, pitch, ghosts,
+        cube, word, tracks, meet, pause, titles, columns, steps, ms, hold, size, yaw, pitch,
+        numbered, ghosts,
     )?;
     Ok(Drawing {
         text: export::player_html(&tl, title, &caption),
