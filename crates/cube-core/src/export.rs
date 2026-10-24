@@ -4,6 +4,8 @@
 //! Every export goes through the same renderer as the screen, so a figure in a
 //! post is pixel for pixel what the app showed.
 
+pub mod mosaic;
+
 use crate::cube::Cube;
 use crate::moves::Move;
 use crate::palette::Palette;
@@ -24,16 +26,30 @@ pub struct Frame {
 /// A whole sequence, drawn.
 pub struct Timeline {
     pub frames: Vec<Frame>,
-    pub size: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Drawn once, behind every frame: the `<defs>` the frames point into, and
+    /// whatever else in the figure does not move.
+    pub backdrop: String,
 }
 
 impl Timeline {
+    /// A square timeline, which is the shape one cube needs.
+    pub fn square(frames: Vec<Frame>, size: f64) -> Self {
+        Self {
+            frames,
+            width: size,
+            height: size,
+            backdrop: String::new(),
+        }
+    }
+
     pub fn total_ms(&self) -> f64 {
         self.frames.iter().map(|f| f.ms).sum()
     }
 
     pub fn bytes(&self) -> usize {
-        self.frames.iter().map(|f| f.markup.len()).sum()
+        self.backdrop.len() + self.frames.iter().map(|f| f.markup.len()).sum::<usize>()
     }
 }
 
@@ -91,10 +107,7 @@ pub fn timeline(
     if let Some(last) = frames.last_mut() {
         last.ms = ms_per_move.max(1.0);
     }
-    Timeline {
-        frames,
-        size: st.size,
-    }
+    Timeline::square(frames, st.size)
 }
 
 fn escape(s: &str) -> String {
@@ -108,7 +121,8 @@ fn escape(s: &str) -> String {
 /// `<img>` tag, so it drops straight into Markdown.
 pub fn animated_svg(tl: &Timeline, background: Option<&str>) -> String {
     let total = tl.total_ms().max(1.0);
-    let mut s = open(tl.size, tl.size, background);
+    let mut s = open(tl.width, tl.height, background);
+    s.push_str(&tl.backdrop);
     let mut elapsed = 0.0;
     for frame in &tl.frames {
         let start = elapsed / total;
@@ -175,7 +189,7 @@ pub fn player_html(tl: &Timeline, title: &str, sequence: &str) -> String {
 body {{ margin: 0; background: var(--bg); color: var(--ink);
        font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; }}
 figure {{ margin: 0; display: grid; gap: .5rem; justify-items: center; padding: 1rem; }}
-svg {{ width: min(100%, {size}px); height: auto; }}
+svg {{ width: min(100%, {width}px); height: auto; }}
 .bar {{ display: flex; gap: .5rem; align-items: center; }}
 button {{ font: inherit; color: inherit; background: none; border: 1px solid var(--line);
           border-radius: .5rem; padding: .25rem .6rem; cursor: pointer; }}
@@ -184,7 +198,7 @@ output {{ color: var(--soft); min-width: 6ch; font-variant-numeric: tabular-nums
 input[type=range] {{ accent-color: #2a78d6; }}
 </style>
 <figure>
-  <svg id="view" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}"></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}">{backdrop}<g id="view"></g></svg>
   <div class="bar">
     <button id="play">&#9654; play</button>
     <button id="prev">&#9664;</button>
@@ -239,7 +253,9 @@ show(0);
 "##,
         title = escape(title),
         sequence = escape(sequence),
-        size = num(tl.size),
+        width = num(tl.width),
+        height = num(tl.height),
+        backdrop = tl.backdrop,
         last = tl.frames.len().saturating_sub(1),
         frames = frames.join(","),
         labels = labels.join(","),

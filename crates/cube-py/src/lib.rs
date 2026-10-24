@@ -17,7 +17,7 @@ use cube_core::{Cube as CoreCube, Permutation as CorePermutation, notation};
 use cube_graphs as graphs;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString};
+use pyo3::types::{PyDict, PyList, PyString};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
@@ -657,6 +657,241 @@ fn player(cube: &Cube, word: &str, steps: usize, ms: f64, title: &str) -> PyResu
     })
 }
 
+/// The settings a track in a mosaic understands.
+const TRACK_KEYS: &[&str] = &[
+    "cube", "word", "row", "col", "back", "delay", "wrap", "first", "last",
+];
+
+fn dict_text(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<String> {
+    match dict.get_item(key)? {
+        Some(value) => value.extract(),
+        None => Ok(String::new()),
+    }
+}
+
+fn dict_count(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<usize> {
+    match dict.get_item(key)? {
+        Some(value) => value.extract(),
+        None => Ok(0),
+    }
+}
+
+fn dict_flag(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<bool> {
+    match dict.get_item(key)? {
+        Some(value) => value.extract(),
+        None => Ok(false),
+    }
+}
+
+/// One row of a mosaic, read off the dict that describes it.
+fn mosaic_track(item: &Bound<'_, PyAny>) -> PyResult<export::mosaic::Track> {
+    let dict = item
+        .cast::<PyDict>()
+        .map_err(|_| PyValueError::new_err("every track is a dict"))?;
+    for key in dict.keys() {
+        let name: String = key.extract()?;
+        if !TRACK_KEYS.contains(&name.as_str()) {
+            return Err(PyKeyError::new_err(format!(
+                "no track setting called {name}: one of {}",
+                TRACK_KEYS.join(", ")
+            )));
+        }
+    }
+    let value = dict
+        .get_item("cube")?
+        .ok_or_else(|| PyKeyError::new_err("every track wants a cube to start from"))?;
+    let cube = value
+        .cast::<Cube>()
+        .map_err(|_| PyValueError::new_err("a track's cube is a Cube"))?
+        .borrow()
+        .inner
+        .clone();
+    let moves = parse_moves(cube.n(), &dict_text(dict, "word")?)?;
+    let back = dict_flag(dict, "back")?;
+    // A backward track is given the state its moves arrive at and undoes them
+    // one at a time, which is the half of a search that starts from the goal.
+    let mut track = if back {
+        export::mosaic::Track::rewound(cube, &moves)
+    } else {
+        export::mosaic::Track::new(cube, moves)
+    };
+    track.row = dict_count(dict, "row")?;
+    track.col = dict_count(dict, "col")?;
+    track.delay = dict_count(dict, "delay")?;
+    track.wrap = dict_flag(dict, "wrap")?;
+    track.first = dict_text(dict, "first")?;
+    track.last = dict_text(dict, "last")?;
+    if back && track.col < track.moves.len() {
+        return Err(PyValueError::new_err(format!(
+            "a track filling leftwards from column {} has room for {} moves, not {}",
+            track.col,
+            track.col,
+            track.moves.len()
+        )));
+    }
+    Ok(track)
+}
+
+/// The rows a mosaic draws, and the maneuver to write under it.
+fn mosaic_plan(
+    cube: Option<&Cube>,
+    word: &str,
+    tracks: Option<&Bound<'_, PyList>>,
+    meet: Option<&str>,
+    pause: usize,
+) -> PyResult<(Vec<export::mosaic::Track>, String)> {
+    if let Some(list) = tracks {
+        let rows = list
+            .iter()
+            .map(|item| mosaic_track(&item))
+            .collect::<PyResult<Vec<_>>>()?;
+        let longest = rows
+            .iter()
+            .max_by_key(|t| t.moves.len())
+            .map(|t| notation::format(&t.moves))
+            .unwrap_or_default();
+        return Ok((rows, longest));
+    }
+    let cube = cube.ok_or_else(|| {
+        PyValueError::new_err("a mosaic wants a cube and a maneuver, or a list of tracks")
+    })?;
+    let n = cube.inner.n();
+    let forward = parse_moves(n, word)?;
+    match meet {
+        Some(second) => {
+            let backward = parse_moves(n, second)?;
+            let whole = notation::format(&[forward.clone(), backward.clone()].concat());
+            Ok((
+                export::mosaic::meet(&cube.inner, &forward, &backward, pause),
+                whole,
+            ))
+        }
+        None => Ok((
+            vec![export::mosaic::Track::new(cube.inner.clone(), forward).wrapping()],
+            word.trim().to_string(),
+        )),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mosaic_timeline(
+    cube: Option<&Cube>,
+    word: &str,
+    tracks: Option<&Bound<'_, PyList>>,
+    meet: Option<&str>,
+    pause: usize,
+    columns: usize,
+    steps: usize,
+    ms: f64,
+    size: f64,
+    yaw: f64,
+    pitch: f64,
+    ghosts: bool,
+) -> PyResult<(export::Timeline, String)> {
+    let (rows, caption) = mosaic_plan(cube, word, tracks, meet, pause)?;
+    let camera = Camera {
+        yaw,
+        pitch,
+        zoom: 1.0,
+    }
+    .clamped();
+    let style = Style3d {
+        size,
+        ..Style3d::default()
+    };
+    let layout = export::mosaic::Layout {
+        columns: columns.max(1),
+        ghosts,
+        ..export::mosaic::Layout::default()
+    };
+    let tl = export::mosaic::timeline(
+        &rows,
+        &camera,
+        &style,
+        &STANDARD,
+        &Marks::new(),
+        &layout,
+        steps,
+        ms,
+    );
+    Ok((tl, caption))
+}
+
+/// A maneuver animated into a grid: every state lands in a cell of its own,
+/// and the turn that reaches it plays inside that cell as the cube arrives.
+/// The still grid of `strip`, in other words, drawing itself one cube per move.
+///
+/// Give it `cube` and `word` for one sequence filling a grid `columns` wide;
+/// `meet` as well for the two sided figure, where `word` walks forwards from
+/// the scramble along the top row, `meet` walks backwards from the solved cube
+/// along the second, the two stop in the same column, and a third row then
+/// carries the whole solution across; or `tracks` to place the rows yourself:
+///
+///     [{"cube": c, "word": "R U", "row": 0, "col": 0, "back": False,
+///       "delay": 0, "wrap": False, "first": "scrambled", "last": "meet"}]
+///
+/// A backward track is given the state its moves arrive at and undoes them one
+/// at a time, filling leftwards from `col`. `delay` holds a row still for that
+/// many moves of the shared clock, which is how a row waits for two others to
+/// finish.
+#[pyfunction]
+#[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1, columns=8,
+                    steps=6, ms=420.0, size=160.0, yaw=38.0, pitch=24.0, ghosts=true,
+                    background=None))]
+#[allow(clippy::too_many_arguments)]
+fn mosaic(
+    cube: Option<&Cube>,
+    word: &str,
+    tracks: Option<&Bound<'_, PyList>>,
+    meet: Option<&str>,
+    pause: usize,
+    columns: usize,
+    steps: usize,
+    ms: f64,
+    size: f64,
+    yaw: f64,
+    pitch: f64,
+    ghosts: bool,
+    background: Option<&str>,
+) -> PyResult<Drawing> {
+    let (tl, _) = mosaic_timeline(
+        cube, word, tracks, meet, pause, columns, steps, ms, size, yaw, pitch, ghosts,
+    )?;
+    Ok(Drawing::svg_of(export::animated_svg(&tl, background)))
+}
+
+/// The same grid as `mosaic`, as a self contained HTML page with play, step
+/// and scrub. The arrows step one move of the clock, so a two sided figure
+/// steps both of its rows at once.
+#[pyfunction]
+#[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1, columns=8,
+                    steps=6, ms=420.0, size=160.0, yaw=38.0, pitch=24.0, ghosts=true,
+                    title="Rubik's cube"))]
+#[allow(clippy::too_many_arguments)]
+fn mosaic_player(
+    cube: Option<&Cube>,
+    word: &str,
+    tracks: Option<&Bound<'_, PyList>>,
+    meet: Option<&str>,
+    pause: usize,
+    columns: usize,
+    steps: usize,
+    ms: f64,
+    size: f64,
+    yaw: f64,
+    pitch: f64,
+    ghosts: bool,
+    title: &str,
+) -> PyResult<Drawing> {
+    let (tl, caption) = mosaic_timeline(
+        cube, word, tracks, meet, pause, columns, steps, ms, size, yaw, pitch, ghosts,
+    )?;
+    Ok(Drawing {
+        text: export::player_html(&tl, title, &caption),
+        is_svg: false,
+    })
+}
+
 /// Percent encode a query value.
 fn encoded(text: &str) -> String {
     text.chars()
@@ -874,6 +1109,8 @@ fn magiccube(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(strip, module)?)?;
     module.add_function(wrap_pyfunction!(animation, module)?)?;
     module.add_function(wrap_pyfunction!(player, module)?)?;
+    module.add_function(wrap_pyfunction!(mosaic, module)?)?;
+    module.add_function(wrap_pyfunction!(mosaic_player, module)?)?;
     module.add_function(wrap_pyfunction!(embed, module)?)?;
     module.add_function(wrap_pyfunction!(solve, module)?)?;
     module.add_function(wrap_pyfunction!(table_tree, module)?)?;

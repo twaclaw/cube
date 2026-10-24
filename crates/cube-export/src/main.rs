@@ -1,13 +1,14 @@
 //! Command line exporter: the same drawings as the app, for a blog build.
 
 use cube_core::export;
+use cube_core::export::mosaic;
 use cube_core::geom::facelet_from_label;
 use cube_core::palette::STANDARD;
 use cube_core::render::cube3d::{CAMERA_PRESETS, Camera, Style3d};
 use cube_core::render::net::NetStyle;
 use cube_core::render::{Highlights, Marks};
 use cube_core::scramble::{Rng, scramble};
-use cube_core::{Cube, notation};
+use cube_core::{Cube, Move, notation};
 use std::process::ExitCode;
 
 const USAGE: &str = "\
@@ -23,16 +24,23 @@ usage: cube-export [options] > out.svg
   -v, --view YAW,PITCH  camera angles in degrees
   -p, --preset NAME     named view (U F R, Isometric, Front, Up, ...)
       --zoom K          camera zoom (default 1)
-  -m, --mode MODE       still | net | strip | anim | player | table-tree |
-                        search-tree (default still)
+  -m, --mode MODE       still | net | strip | anim | player | mosaic |
+                        mosaic-player | table-tree | search-tree
+                        (default still)
       --numbers         facelet numbers on the net
       --highlight LIST  facelet numbers to ring, e.g. 1,3,8-11
       --steps N         animation frames per move (default 8, 1 = states only)
       --ms N            milliseconds per move (default 420)
-      --columns N       strip columns (default 6)
+      --columns N       strip and mosaic columns (default 6)
       --size-px N       SVG viewBox side (default 300)
       --flat            notebook colors, no shading
       --background CSS  solid background instead of transparent
+
+ grids on the clock (--mode mosaic | mosaic-player)
+      --meet WORD       second half of the solution: draws the two sided
+                        search, --seq forwards and this one backwards
+      --pause N         slots to wait before the combined row (default 1)
+      --no-ghosts       leave the cells a cube has yet to reach blank
 
  trees (--mode table-tree | search-tree)
       --coord NAME      twist | flip | slice | corners | ud_edges | slice_perm
@@ -71,6 +79,9 @@ struct Args {
     columns: usize,
     size: f64,
     flat: bool,
+    meet: String,
+    pause: usize,
+    ghosts: bool,
     background: Option<String>,
     out: Option<String>,
     coord: String,
@@ -99,6 +110,9 @@ impl Default for Args {
             columns: 6,
             size: 300.0,
             flat: false,
+            meet: String::new(),
+            pause: 1,
+            ghosts: true,
             background: None,
             out: None,
             coord: "corners".to_string(),
@@ -151,6 +165,9 @@ fn run() -> Result<(), String> {
             "--columns" => a.columns = value()?.parse().map_err(|_| "bad column count")?,
             "--size-px" => a.size = value()?.parse().map_err(|_| "bad size")?,
             "--flat" => a.flat = true,
+            "--meet" => a.meet = value()?,
+            "--pause" => a.pause = value()?.parse().map_err(|_| "bad slot count")?,
+            "--no-ghosts" => a.ghosts = false,
             "--background" => a.background = Some(value()?),
             "--coord" => a.coord = value()?,
             "--depth" => a.depth = value()?.parse().map_err(|_| "bad depth")?,
@@ -225,6 +242,26 @@ fn run() -> Result<(), String> {
             let tl = export::timeline(&cube, &moves, &cam, &st, &STANDARD, &marks, a.steps, a.ms);
             export::player_html(&tl, "Rubik's cube", &notation::format(&moves))
         }
+        "mosaic" | "mosaic-player" => {
+            let tracks = mosaic_tracks(&cube, &moves, &a)?;
+            let layout = mosaic::Layout {
+                columns: a.columns,
+                ghosts: a.ghosts,
+                ..mosaic::Layout::default()
+            };
+            let tl = mosaic::timeline(
+                &tracks, &cam, &st, &STANDARD, &marks, &layout, a.steps, a.ms,
+            );
+            let word = tracks
+                .last()
+                .map(|t| notation::format(&t.moves))
+                .unwrap_or_default();
+            if a.mode == "mosaic" {
+                export::animated_svg(&tl, bg)
+            } else {
+                export::player_html(&tl, "Rubik's cube", &word)
+            }
+        }
         "table-tree" => {
             let coord = parse_coord(&a.coord)?;
             let moves = parse_move_list(&a.moves)?;
@@ -254,6 +291,18 @@ fn run() -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+/// The tracks a mosaic draws: the sequence on its own, filling a grid, or the
+/// three rows of a two sided search when `--meet` gives the second half.
+fn mosaic_tracks(cube: &Cube, moves: &[Move], a: &Args) -> Result<Vec<mosaic::Track>, String> {
+    if a.meet.trim().is_empty() {
+        return Ok(vec![
+            mosaic::Track::new(cube.clone(), moves.to_vec()).wrapping(),
+        ]);
+    }
+    let backward = notation::parse(a.n, &a.meet).map_err(|e| e.to_string())?;
+    Ok(mosaic::meet(cube, moves, &backward, a.pause))
 }
 
 /// `1,3,8-11` into facelets.

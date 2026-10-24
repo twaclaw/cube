@@ -86,7 +86,16 @@ make post       # runs the notebook, writes figures/, exports cube.md
 | every step, one SVG | the whole maneuver as a grid of labeled states |
 | animated SVG | SMIL flipbook; works inside `<img>`, so it drops into Markdown |
 | animation, HTML page | self-contained player with play, step and scrub |
+| mosaic, animated SVG | the grid of states filling itself, each cube arriving mid turn |
+| mosaic, HTML page | the same grid, with play, step and scrub |
 | embed snippet | an `<iframe>` of the live app, state and all, still interactive |
+
+A mosaic is the grid and the animation at once: every state lands in a cell
+of its own, and the turn that reaches it plays inside that cell as the cube
+fades in. Rows share one clock, so `--meet` draws a search coming at a solution
+from both ends: the scramble walking forwards along the top row, the solved
+cube walking backwards along the second, the two stopping on the same state in
+the same column, and a third row then carrying the whole solution across.
 
 The same drawings come out of the command line exporter:
 
@@ -94,6 +103,9 @@ The same drawings come out of the command line exporter:
 cargo run -p cube-export -- --help
 cargo run -p cube-export -- -s "R U R' U'" --mode strip -o steps.svg
 cargo run -p cube-export -- --mode net --numbers --highlight 1,3,8-11 -o net.svg
+cargo run -p cube-export -- -s "R U R' U'" --mode mosaic --columns 5 -o grid.svg
+cargo run -p cube-export -- --scramble 6 --seed 3 -s "F2 D B2" --meet "U' F' L" \
+    --mode mosaic --size-px 130 -o meet.svg
 ```
 
 The app reads its own state from the query string, which is what the embed

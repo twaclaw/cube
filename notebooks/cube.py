@@ -238,6 +238,41 @@ def _(film, mc):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ## The grid on the clock
+
+    The two figures above, in one: every state lands in a cell of its own, and
+    the turn that reaches it plays inside that cell while the cube fades in.
+    The grid draws itself one cube per move.
+    """)
+
+
+@app.cell
+def _(film, mc):
+    mc.mosaic(mc.Cube(), film, columns=5, size=150)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Rows share the clock, which is what a search coming at a solution from both
+    ends looks like: the scramble walks forwards along the top row, the solved
+    cube walks backwards along the second, the two stop on the same state in
+    the same column, and a third row then carries the whole solution across.
+    """)
+
+
+@app.cell
+def _(mc):
+    short = mc.Cube.scrambled(seed=3, moves=6)
+    halves = str(short.solve()).split()
+    forward, backward = " ".join(halves[:3]), " ".join(halves[3:])
+    mc.mosaic(short, forward, meet=backward, size=130)
+    return backward, forward, short
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     And the one export that stays interactive: an `<iframe>` of the published
     app, which draws the cube itself and can be dragged, stepped and solved.
     """)
@@ -262,7 +297,19 @@ def _(mo):
 
 
 @app.cell
-def _(FIGURES, cube, film, mc, perm, phase2, scrambled, solution):
+def _(
+    FIGURES,
+    backward,
+    cube,
+    film,
+    forward,
+    mc,
+    perm,
+    phase2,
+    scrambled,
+    short,
+    solution,
+):
     saved = {
         "net": cube.net(numbers=True).save(str(FIGURES / "net.svg")),
         "phase2": mc.Cube().net(blank=True, marks=phase2).save(str(FIGURES / "phase2.svg")),
@@ -270,6 +317,8 @@ def _(FIGURES, cube, film, mc, perm, phase2, scrambled, solution):
         "solution": mc.strip(scrambled, solution.moves, columns=7, size=170).save(str(FIGURES / "solution.svg")),
         "film": mc.animation(mc.Cube(), film, steps=6).save(str(FIGURES / "sexy-move.svg")),
         "player": mc.player(mc.Cube(), film).save(str(FIGURES / "sexy-move.html")),
+        "mosaic": mc.mosaic(mc.Cube(), film, columns=5, size=150).save(str(FIGURES / "sexy-move-mosaic.svg")),
+        "meet": mc.mosaic(short, forward, meet=backward, size=130).save(str(FIGURES / "meet-in-the-middle.svg")),
     }
     saved
 
@@ -287,6 +336,13 @@ def _(mo):
     An animated SVG works in the same way, because it plays inside an `<img>`:
 
     ![The sexy move, animated](figures/sexy-move.svg)
+
+    A mosaic is that animation and the grid at once, each cube arriving with
+    its own move, and a second one drawn for a search that meets in the middle:
+
+    ![The sexy move, filling a grid](figures/sexy-move-mosaic.svg)
+
+    ![A search meeting in the middle](figures/meet-in-the-middle.svg)
 
     The HTML player needs an iframe rather than an image tag, which Markdown
     passes through untouched:

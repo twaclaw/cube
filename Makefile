@@ -89,6 +89,11 @@ figures: ## Write sample figures with the command line exporter
 	    -o $(FIGURES)/sexy-move-anim.svg
 	cargo run --release -p cube-export -- -s "R U R' U'" --mode player \
 	    -o $(FIGURES)/sexy-move.html
+	cargo run --release -p cube-export -- -s "R U R' U'" --mode mosaic \
+	    --columns 5 --size-px 150 -o $(FIGURES)/sexy-move-mosaic.svg
+	cargo run --release -p cube-export -- --scramble 6 --seed 3 -s "F2 D B2" \
+	    --meet "U' F' L" --mode mosaic --size-px 130 \
+	    -o $(FIGURES)/meet-in-the-middle.svg
 	cargo run --release -p cube-export -- --mode table-tree --coord corners \
 	    --moves U,R2 --depth 4 -o $(FIGURES)/tree-corners.svg
 	cargo run --release -p cube-export -- --mode table-tree --coord flip \

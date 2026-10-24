@@ -231,7 +231,7 @@ proptest! {
         prop_assert!(svg.starts_with("<svg") && svg.ends_with("</svg>"));
         prop_assert_eq!(svg.matches("<animate ").count(), tl.frames.len());
         let html = export::player_html(&tl, "test", "R U");
-        prop_assert!(html.contains("<svg id=\"view\""));
+        prop_assert!(html.contains("<g id=\"view\"></g>"));
         let strip = export::strip_svg(&cube, &moves, &cam, &st, &STANDARD, &Marks::new(),
                                       4, Some("#fff"));
         prop_assert!(strip.starts_with("<svg") && strip.ends_with("</svg>"));
