@@ -98,7 +98,8 @@ cube walking backwards along the second, the two stopping on the same state in
 the same column, and a third row then carrying the whole solution across. Each
 row can be named in the margin, rest on each state it lands, run at a speed of
 its own, and write labels of your own under its cubes in place of the move
-names.
+names. The two cubes the searches met on are framed the moment they
+coincide.
 
 The same drawings come out of the command line exporter:
 

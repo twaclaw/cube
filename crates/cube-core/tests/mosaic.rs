@@ -1,6 +1,6 @@
 //! The grid animation: a sequence that draws itself one cube per move.
 
-use cube_core::export::mosaic::{self, Layout, Pace, Track};
+use cube_core::export::mosaic::{self, Highlight, Layout, Mark, Pace, Track, When};
 use cube_core::export::{Timeline, animated_svg, player_html};
 use cube_core::palette::STANDARD;
 use cube_core::render::{Camera, Marks, Style3d};
@@ -349,15 +349,189 @@ fn a_meet_runs_until_the_combined_row_is_done() {
     // The first frame shows both ends and nothing of the third row.
     let first = &tl.frames[0].markup;
     assert_eq!(first.matches("<use href=").count(), 3);
-    // By the end every cell of all three rows holds a cube.
+    // By the end every cell of all three rows holds a cube, over the outline
+    // layer and under the mark on the pair they met on.
     let last = &tl.frames.last().unwrap().markup;
     let cells: usize = tracks.iter().map(Track::cells).sum();
-    assert_eq!(last.matches("<use href=").count(), cells + 1);
+    assert_eq!(last.matches("<use href=").count(), cells + 2);
     // The two halves turn together, so a mid turn frame names both.
     assert!(
         tl.frames.iter().any(|f| f.label.split(' ').count() == 2),
         "a frame of two rows turning at once is labelled with both"
     );
+}
+
+/// The layers a frame places where they were drawn: the outline of the cells
+/// still waiting, and the marks. A cube is placed with an `x`, these are not.
+fn layers(markup: &str) -> Vec<&str> {
+    markup
+        .split("<use href=\"#")
+        .skip(1)
+        .map(|rest| rest.split("/>").next().unwrap_or_default())
+        .filter(|tag| !tag.contains(" x=\""))
+        .collect()
+}
+
+/// The mark layers of a frame: the ones that fade, the outline never does.
+fn mark_layers(markup: &str) -> usize {
+    layers(markup)
+        .iter()
+        .filter(|tag| tag.contains("opacity="))
+        .count()
+}
+
+/// How far up the marks are in a frame, 0 when it has none.
+fn marked(markup: &str) -> f64 {
+    layers(markup)
+        .iter()
+        .filter_map(|tag| tag.split("opacity=\"").nth(1))
+        .filter_map(|rest| rest.split('"').next())
+        .filter_map(|v| v.parse::<f64>().ok())
+        .fold(0.0, f64::max)
+}
+
+/// Each frame with the time it comes up at.
+fn clocked(tl: &Timeline) -> Vec<(f64, &cube_core::export::Frame)> {
+    let mut at = 0.0;
+    tl.frames
+        .iter()
+        .map(|f| {
+            let was = at;
+            at += f.ms;
+            (was, f)
+        })
+        .collect()
+}
+
+#[test]
+fn nothing_is_marked_unless_a_track_asks() {
+    let tl = draw(&[Track::new(Cube::solved(3), moves("R U"))], STEPS);
+    assert!(tl.frames.iter().all(|f| marked(&f.markup) == 0.0));
+}
+
+#[test]
+fn the_pair_a_search_meets_on_is_marked_the_moment_it_meets() {
+    let cube = Cube::solved(3);
+    let solution = moves("R U R' U' F2 L");
+    // Halves of different lengths, so the two walks arrive at different
+    // times and only the later of them is the meeting.
+    let (forward, backward) = solution.split_at(4);
+    let tracks = mosaic::meet(&cube, forward, backward, 1.0);
+    assert_eq!(tracks[0].highlight, vec![4]);
+    assert_eq!(tracks[1].highlight, vec![2]);
+    assert!(tracks[2].highlight.is_empty());
+
+    // A turn every 300ms and no resting, so the forward row lands its fourth
+    // move at 1200ms and the backward row its second at 600ms.
+    let tl = drawn(
+        &tracks,
+        &Layout::default(),
+        &Pace {
+            ms: 300.0,
+            hold: Some(0.0),
+            steps: STEPS,
+        },
+    );
+    let clocked = clocked(&tl);
+    let (first, _) = clocked
+        .iter()
+        .find(|(_, f)| marked(&f.markup) > 0.0)
+        .expect("a frame with the mark on it");
+    assert!(
+        (1200.0..1500.0).contains(first),
+        "marked from {first}ms, not from the later of the two arrivals"
+    );
+    // Once up it stays up, and it is full up by the end.
+    let on = clocked
+        .iter()
+        .position(|(_, f)| marked(&f.markup) > 0.0)
+        .expect("a frame with the mark on it");
+    assert!(clocked[on..].iter().all(|(_, f)| marked(&f.markup) > 0.0));
+    assert_eq!(marked(&tl.frames.last().unwrap().markup), 1.0);
+    // Both rows are marked at one moment, so they share one layer.
+    assert_eq!(mark_layers(&tl.frames.last().unwrap().markup), 1);
+}
+
+#[test]
+fn a_mark_can_wait_for_the_whole_figure() {
+    let track = Track::new(Cube::solved(3), moves("R U F")).marking_last();
+    let pace = Pace {
+        ms: 300.0,
+        hold: Some(0.0),
+        steps: STEPS,
+    };
+    let at_end = drawn(
+        std::slice::from_ref(&track),
+        &Layout {
+            highlight: Highlight {
+                when: When::End,
+                ..Highlight::default()
+            },
+            ..Layout::default()
+        },
+        &pace,
+    );
+    let plain = drawn(
+        &[Track::new(Cube::solved(3), moves("R U F"))],
+        &Layout::default(),
+        &pace,
+    );
+    // The figure runs on past the last cube, to bring the mark in.
+    assert!(at_end.total_ms() > plain.total_ms());
+    assert_eq!(at_end.frames.len(), plain.frames.len() + STEPS);
+    assert_eq!(marked(&at_end.frames.last().unwrap().markup), 1.0);
+}
+
+#[test]
+fn each_mark_can_wait_for_its_own_cube() {
+    let cube = Cube::solved(3);
+    let track = Track::new(cube, moves("R U F")).marking(vec![1, 3]);
+    let tl = drawn(
+        &[track],
+        &Layout {
+            highlight: Highlight {
+                when: When::Landed,
+                ..Highlight::default()
+            },
+            ..Layout::default()
+        },
+        &Pace {
+            ms: 300.0,
+            hold: Some(0.0),
+            steps: STEPS,
+        },
+    );
+    // Two moments, so two layers, and the first is up long before the second.
+    let last = tl.frames.last().unwrap();
+    assert_eq!(mark_layers(&last.markup), 2, "one layer per moment");
+    let marked_at: Vec<f64> = clocked(&tl)
+        .iter()
+        .filter(|(_, f)| marked(&f.markup) > 0.0)
+        .map(|(t, _)| *t)
+        .collect();
+    assert!(
+        marked_at[0] < 600.0,
+        "the first cube is pointed at as it lands"
+    );
+}
+
+#[test]
+fn a_dot_can_stand_in_for_the_frame() {
+    let track = Track::new(Cube::solved(3), moves("R U")).marking_last();
+    let dotted = drawn(
+        std::slice::from_ref(&track),
+        &Layout {
+            highlight: Highlight {
+                mark: Mark::Dot,
+                ..Highlight::default()
+            },
+            ..Layout::default()
+        },
+        &Pace::default(),
+    );
+    let framed = drawn(&[track], &Layout::default(), &Pace::default());
+    assert!(dotted.backdrop.contains("<circle"));
+    assert!(!framed.backdrop.contains("<circle"));
 }
 
 #[test]

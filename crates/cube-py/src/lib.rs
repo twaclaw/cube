@@ -66,9 +66,7 @@ fn parse_color(text: &str) -> PyResult<Rgb> {
         .find(|(name, _)| name.eq_ignore_ascii_case(text))
         .map(|(_, hex)| Rgb::from_hex(*hex))
         .ok_or_else(|| {
-            PyValueError::new_err(format!(
-                "no colour called {text}: use a name or #rrggbb"
-            ))
+            PyValueError::new_err(format!("no colour called {text}: use a name or #rrggbb"))
         })
 }
 
@@ -94,7 +92,11 @@ fn facelets_of_key(n: u8, key: &Bound<'_, PyAny>) -> PyResult<Vec<Facelet>> {
 }
 
 /// `{"UFR": "red", 25: "#0051ba"}` as something the renderers understand.
-fn marks_from(n: u8, fills: Option<&Bound<'_, PyDict>>, rings: Option<&Bound<'_, PyDict>>) -> PyResult<Marks> {
+fn marks_from(
+    n: u8,
+    fills: Option<&Bound<'_, PyDict>>,
+    rings: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Marks> {
     let mut marks = Marks::new();
     for (source, is_fill) in [(fills, true), (rings, false)] {
         let Some(dict) = source else { continue };
@@ -155,7 +157,9 @@ impl Drawing {
             return self.text.clone();
         }
         let quoted = self.text.replace('&', "&amp;").replace('"', "&quot;");
-        format!("<iframe srcdoc=\"{quoted}\" width=\"100%\" height=\"460\" style=\"border:0\"></iframe>")
+        format!(
+            "<iframe srcdoc=\"{quoted}\" width=\"100%\" height=\"460\" style=\"border:0\"></iframe>"
+        )
     }
 
     fn __repr__(&self) -> String {
@@ -169,10 +173,7 @@ impl Drawing {
 
 impl Drawing {
     fn svg_of(text: String) -> Self {
-        Self {
-            text,
-            is_svg: true,
-        }
+        Self { text, is_svg: true }
     }
 }
 
@@ -659,7 +660,7 @@ fn player(cube: &Cube, word: &str, steps: usize, ms: f64, title: &str) -> PyResu
 
 /// The settings a track in a mosaic understands.
 const TRACK_KEYS: &[&str] = &[
-    "cube", "word", "row", "col", "back", "delay", "ms", "hold", "wrap", "labels", "title",
+    "cube", "word", "row", "col", "back", "delay", "ms", "hold", "wrap", "labels", "title", "mark",
     "first", "last",
 ];
 
@@ -706,6 +707,18 @@ fn dict_list(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<Vec<String>> {
     }
 }
 
+/// Cells to mark, as indices, or `True` for the one the track ends on.
+fn dict_cells(dict: &Bound<'_, PyDict>, key: &str, cells: usize) -> PyResult<Vec<usize>> {
+    match dict.get_item(key)? {
+        None => Ok(Vec::new()),
+        Some(value) => match value.extract::<bool>() {
+            Ok(true) => Ok(vec![cells - 1]),
+            Ok(false) => Ok(Vec::new()),
+            Err(_) => value.extract(),
+        },
+    }
+}
+
 /// One row of a mosaic, read off the dict that describes it.
 fn mosaic_track(item: &Bound<'_, PyAny>) -> PyResult<export::mosaic::Track> {
     let dict = item
@@ -746,6 +759,13 @@ fn mosaic_track(item: &Bound<'_, PyAny>) -> PyResult<export::mosaic::Track> {
     track.wrap = dict_flag(dict, "wrap")?;
     track.labels = dict_list(dict, "labels")?;
     track.title = dict_text(dict, "title")?;
+    track.highlight = dict_cells(dict, "mark", track.cells())?;
+    if let Some(past) = track.highlight.iter().find(|i| **i >= track.cells()) {
+        return Err(PyValueError::new_err(format!(
+            "a track of {} cells has no cell {past} to mark",
+            track.cells()
+        )));
+    }
     track.first = dict_text(dict, "first")?;
     track.last = dict_text(dict, "last")?;
     if back && track.col < track.moves.len() {
@@ -767,6 +787,7 @@ fn mosaic_plan(
     meet: Option<&str>,
     pause: f64,
     titles: Option<Vec<String>>,
+    mark: Option<bool>,
 ) -> PyResult<(Vec<export::mosaic::Track>, String)> {
     let (mut rows, caption) = if let Some(list) = tracks {
         let rows = list
@@ -807,7 +828,55 @@ fn mosaic_plan(
             row.title = title;
         }
     }
+    // A two sided figure points at the pair it meets on of its own accord;
+    // anything else points at the cube each row ends on, and only when asked.
+    match mark {
+        Some(true) => {
+            for row in rows.iter_mut().filter(|r| r.highlight.is_empty()) {
+                let last = row.cells() - 1;
+                row.highlight = vec![last];
+            }
+        }
+        Some(false) => {
+            for row in rows.iter_mut() {
+                row.highlight.clear();
+            }
+        }
+        None => {}
+    }
     Ok((rows, caption))
+}
+
+/// `frame` or `dot`, and when it shows: `met`, `landed` or `end`.
+fn highlight_of(
+    shape: &str,
+    when: &str,
+    color: Option<&str>,
+) -> PyResult<export::mosaic::Highlight> {
+    let mark = match shape {
+        "frame" => export::mosaic::Mark::Frame,
+        "dot" => export::mosaic::Mark::Dot,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "no mark called {other:?}: frame or dot"
+            )));
+        }
+    };
+    let when = match when {
+        "met" => export::mosaic::When::Met,
+        "landed" => export::mosaic::When::Landed,
+        "end" => export::mosaic::When::End,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "no moment called {other:?}: met, landed or end"
+            )));
+        }
+    };
+    Ok(export::mosaic::Highlight {
+        mark,
+        when,
+        color: color.map(parse_color).transpose()?,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -818,6 +887,10 @@ fn mosaic_timeline(
     meet: Option<&str>,
     pause: f64,
     titles: Option<Vec<String>>,
+    mark: Option<bool>,
+    mark_shape: &str,
+    mark_when: &str,
+    mark_color: Option<&str>,
     columns: usize,
     steps: usize,
     ms: f64,
@@ -828,7 +901,7 @@ fn mosaic_timeline(
     numbered: bool,
     ghosts: bool,
 ) -> PyResult<(export::Timeline, String)> {
-    let (rows, caption) = mosaic_plan(cube, word, tracks, meet, pause, titles)?;
+    let (rows, caption) = mosaic_plan(cube, word, tracks, meet, pause, titles, mark)?;
     let camera = Camera {
         yaw,
         pitch,
@@ -843,6 +916,7 @@ fn mosaic_timeline(
         columns: columns.max(1),
         numbered,
         ghosts,
+        highlight: highlight_of(mark_shape, mark_when, mark_color)?,
         ..export::mosaic::Layout::default()
     };
     let pace = export::mosaic::Pace { ms, hold, steps };
@@ -884,8 +958,18 @@ fn mosaic_timeline(
 /// beside it. `titles` names the rows of a figure you did not build by hand.
 /// `ms` is how long a turn takes and `hold` how long a landed state is left up
 /// before the next turn starts.
+///
+/// A marked cube gets a frame round it, or a dot under it with
+/// `mark_shape="dot"`, in `mark_color`. A two sided figure marks the pair its
+/// searches meet on; `mark=False` turns that off and `mark=True` marks the
+/// cube every row ends on, while a track of your own says which of its cells
+/// to mark with `"mark": [3]`, or `True` for the one it ends on. `mark_when`
+/// says at what moment: `"met"` the moment every marked cube has arrived,
+/// which for a two sided search is where the halves meet, `"landed"` each as
+/// its own cube arrives, `"end"` once the whole figure has played out.
 #[pyfunction]
 #[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1.0, titles=None,
+                    mark=None, mark_shape="frame", mark_when="met", mark_color=None,
                     columns=8, steps=6, ms=420.0, hold=None, size=160.0, yaw=38.0,
                     pitch=24.0, numbered=true, ghosts=true, background=None))]
 #[allow(clippy::too_many_arguments)]
@@ -896,6 +980,10 @@ fn mosaic(
     meet: Option<&str>,
     pause: f64,
     titles: Option<Vec<String>>,
+    mark: Option<bool>,
+    mark_shape: &str,
+    mark_when: &str,
+    mark_color: Option<&str>,
     columns: usize,
     steps: usize,
     ms: f64,
@@ -908,8 +996,8 @@ fn mosaic(
     background: Option<&str>,
 ) -> PyResult<Drawing> {
     let (tl, _) = mosaic_timeline(
-        cube, word, tracks, meet, pause, titles, columns, steps, ms, hold, size, yaw, pitch,
-        numbered, ghosts,
+        cube, word, tracks, meet, pause, titles, mark, mark_shape, mark_when, mark_color, columns,
+        steps, ms, hold, size, yaw, pitch, numbered, ghosts,
     )?;
     Ok(Drawing::svg_of(export::animated_svg(&tl, background)))
 }
@@ -919,6 +1007,7 @@ fn mosaic(
 /// sided figure steps both of its rows at once.
 #[pyfunction]
 #[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1.0, titles=None,
+                    mark=None, mark_shape="frame", mark_when="met", mark_color=None,
                     columns=8, steps=6, ms=420.0, hold=None, size=160.0, yaw=38.0,
                     pitch=24.0, numbered=true, ghosts=true, title="Rubik's cube"))]
 #[allow(clippy::too_many_arguments)]
@@ -929,6 +1018,10 @@ fn mosaic_player(
     meet: Option<&str>,
     pause: f64,
     titles: Option<Vec<String>>,
+    mark: Option<bool>,
+    mark_shape: &str,
+    mark_when: &str,
+    mark_color: Option<&str>,
     columns: usize,
     steps: usize,
     ms: f64,
@@ -941,8 +1034,8 @@ fn mosaic_player(
     title: &str,
 ) -> PyResult<Drawing> {
     let (tl, caption) = mosaic_timeline(
-        cube, word, tracks, meet, pause, titles, columns, steps, ms, hold, size, yaw, pitch,
-        numbered, ghosts,
+        cube, word, tracks, meet, pause, titles, mark, mark_shape, mark_when, mark_color, columns,
+        steps, ms, hold, size, yaw, pitch, numbered, ghosts,
     )?;
     Ok(Drawing {
         text: export::player_html(&tl, title, &caption),
@@ -994,7 +1087,11 @@ fn embed(
     if !word.trim().is_empty() {
         query.push(format!("seq={}", encoded(word.trim())));
     }
-    for (flag, on) in [("numbers", numbers), ("autoplay", autoplay), ("controls", controls)] {
+    for (flag, on) in [
+        ("numbers", numbers),
+        ("autoplay", autoplay),
+        ("controls", controls),
+    ] {
         if on {
             query.push(format!("{flag}=1"));
         }

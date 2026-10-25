@@ -17,7 +17,8 @@ was written for: a search coming at a solution from both ends.
 |---|---|
 | `Track` | one row: a cube, the moves that walk away from it, where its cells sit, when it starts and how fast it goes |
 | `Pace` | the figure's own milliseconds per turn, rest on a landed state, and frames per turn |
-| `Layout` | columns, padding, caption height, numbering, and whether unreached cells are outlined |
+| `Layout` | columns, padding, caption height, numbering, outlines, and how marked cells are pointed at |
+| `Highlight` | what a marked cell gets (`Mark::Frame`, `Mark::Dot`), when (`When::Met`, `When::Landed`, `When::End`) and in what colour |
 | `timeline(tracks, cam, style, palette, marks, layout, pace)` | the `Timeline` the existing writers take |
 | `meet(cube, forward, backward, pause)` | the three tracks of a two sided search |
 
@@ -39,6 +40,14 @@ such a track from the state the moves *arrive* at, reversing and inverting them,
 which is the half of a search that sets out from the solved cube. `wrap: true`
 carries a long sequence into the next row when the columns run out.
 
+A track can point at cells of its own, by index, and `meet` points at the
+pair its two searches land on. A marked cell gets a frame where its outline
+was, or a dot under its caption, faded in at the moment `Layout::highlight`
+names: when every marked cube has arrived, which for a two sided search is the
+moment its halves meet; as each one lands; or once the whole figure has played
+out, in which case the figure runs on a little to bring the marks in. Nothing
+is marked unless it is asked for.
+
 Captions come from the moves, as `3. R`, unless something says otherwise:
 `labels` writes one string of your own per move in place of the move's name,
 `Layout::numbered` drops the `3. `, `first` and `last` annotate the ends of a
@@ -50,8 +59,9 @@ for now; the hook for setting them is where TeX would eventually go.
 `backward` leftwards from the state the whole solution reaches on row 1, and the
 two halves together on row 2, delayed until the other two are done. Rows 0 and 1
 end on the same state in the same column, which is the column the searches met
-in; both carry a `meet` caption. The rows are named forwards, backwards and
-together, which the caller can overwrite. This library does no bidirectional
+in; both carry a `meet` caption and are framed the moment they coincide. The
+rows are named forwards, backwards and together, which the caller can
+overwrite. This library does no bidirectional
 search of its own: it takes the two halves as given.
 
 ## Output size
@@ -95,6 +105,13 @@ mc.mosaic(tracks=[
 # something of your own under each cube, and no step numbers
 mc.mosaic(tracks=[{"cube": mc.Cube(), "word": "R U R' U'",
                    "labels": ["pull", "turn", "push", "back"]}], numbered=False)
+
+# pointing at cubes: a dot rather than a frame, cells of your own, each as it
+# lands rather than when they have all arrived
+mc.mosaic(short, forward, meet=backward, mark_shape="dot", mark_color="gold")
+mc.mosaic(c, "R U R' U'", mark=True)                      # the cube it ends on
+mc.mosaic(tracks=[{"cube": c, "word": "R U R' U'", "mark": [2, 4]}],
+          mark_when="landed")
 ```
 
 `ms` is how long a turn takes and `hold` how long a landed state is left up
@@ -115,8 +132,10 @@ cargo run -p cube-export -- --scramble 6 --seed 3 -s "F2 D B2" --meet "U' F' L" 
 
 `--mode mosaic-player` writes the HTML page, `--pause N` sets the turns to wait
 before the combined row, `--hold N` the rest on each landed state, `--titles`
-names the rows, `--unnumbered` drops the step numbers, and `--no-ghosts` leaves
-unreached cells blank.
+names the rows, `--unnumbered` drops the step numbers, `--mark frame|dot|none`,
+`--mark-when met|landed|end` and `--mark-color #rrggbb` say how the pair two
+searches meet on is pointed at, and `--no-ghosts` leaves unreached cells
+blank.
 
 ## Not in the app yet
 

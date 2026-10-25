@@ -44,6 +44,10 @@ usage: cube-export [options] > out.svg
                         turn starts (default: a little under half a turn)
       --titles LIST     names for the rows, e.g. forwards,backwards,together
       --unnumbered      write the move alone under each cube, unnumbered
+      --mark SHAPE      how the cubes two searches meet on are pointed at:
+                        frame | dot | none (default frame)
+      --mark-when WHEN  met (as they meet) | landed | end (default met)
+      --mark-color CSS  the colour to point with, as #rrggbb
       --no-ghosts       leave the cells a cube has yet to reach blank
 
  trees (--mode table-tree | search-tree)
@@ -88,6 +92,9 @@ struct Args {
     hold: Option<f64>,
     titles: String,
     numbered: bool,
+    mark: String,
+    mark_when: String,
+    mark_color: Option<String>,
     ghosts: bool,
     background: Option<String>,
     out: Option<String>,
@@ -122,6 +129,9 @@ impl Default for Args {
             hold: None,
             titles: String::new(),
             numbered: true,
+            mark: "frame".to_string(),
+            mark_when: "met".to_string(),
+            mark_color: None,
             ghosts: true,
             background: None,
             out: None,
@@ -180,6 +190,9 @@ fn run() -> Result<(), String> {
             "--hold" => a.hold = Some(value()?.parse().map_err(|_| "bad duration")?),
             "--titles" => a.titles = value()?,
             "--unnumbered" => a.numbered = false,
+            "--mark" => a.mark = value()?,
+            "--mark-when" => a.mark_when = value()?,
+            "--mark-color" => a.mark_color = Some(value()?),
             "--no-ghosts" => a.ghosts = false,
             "--background" => a.background = Some(value()?),
             "--coord" => a.coord = value()?,
@@ -261,6 +274,22 @@ fn run() -> Result<(), String> {
                 columns: a.columns,
                 numbered: a.numbered,
                 ghosts: a.ghosts,
+                highlight: mosaic::Highlight {
+                    mark: match a.mark.as_str() {
+                        "frame" | "none" => mosaic::Mark::Frame,
+                        "dot" => mosaic::Mark::Dot,
+                        other => return Err(format!("no mark called {other}: frame, dot or none")),
+                    },
+                    when: match a.mark_when.as_str() {
+                        "met" => mosaic::When::Met,
+                        "landed" => mosaic::When::Landed,
+                        "end" => mosaic::When::End,
+                        other => {
+                            return Err(format!("no moment called {other}: met, landed or end"));
+                        }
+                    },
+                    color: a.mark_color.as_deref().map(parse_rgb).transpose()?,
+                },
                 ..mosaic::Layout::default()
             };
             let pace = mosaic::Pace {
@@ -326,7 +355,22 @@ fn mosaic_tracks(cube: &Cube, moves: &[Move], a: &Args) -> Result<Vec<mosaic::Tr
             track.title = title.trim().to_string();
         }
     }
+    if a.mark == "none" {
+        for track in &mut tracks {
+            track.highlight.clear();
+        }
+    }
     Ok(tracks)
+}
+
+/// `#rrggbb`, which is all the command line needs to name a colour.
+fn parse_rgb(text: &str) -> Result<cube_core::palette::Rgb, String> {
+    let hex = text.trim().strip_prefix('#').unwrap_or(text.trim());
+    u32::from_str_radix(hex, 16)
+        .ok()
+        .filter(|_| hex.len() == 6)
+        .map(cube_core::palette::Rgb::from_hex)
+        .ok_or_else(|| format!("{text} is not a colour: write it as #rrggbb"))
 }
 
 /// `1,3,8-11` into facelets.

@@ -68,6 +68,9 @@ pub struct Track {
     pub labels: Vec<String>,
     /// A name for the whole row, written in the margin beside it.
     pub title: String,
+    /// Cells to mark, by index. This is how the two cubes a search meets on
+    /// are pointed at; [`Layout::highlight`] says how and when.
+    pub highlight: Vec<usize>,
     /// Caption under the first cube. Empty writes `start`.
     pub first: String,
     /// Caption added under the last cube, beside the move that reached it.
@@ -89,6 +92,7 @@ impl Track {
             wrap: false,
             labels: Vec::new(),
             title: String::new(),
+            highlight: Vec::new(),
             first: String::new(),
             last: String::new(),
         }
@@ -141,6 +145,18 @@ impl Track {
     pub fn labelled(mut self, labels: Vec<String>) -> Self {
         self.labels = labels;
         self
+    }
+
+    /// Mark these cells, by index.
+    pub fn marking(mut self, cells: Vec<usize>) -> Self {
+        self.highlight = cells;
+        self
+    }
+
+    /// Mark the cube the last move reaches.
+    pub fn marking_last(self) -> Self {
+        let last = self.cells() - 1;
+        self.marking(vec![last])
     }
 
     pub fn captioned(mut self, first: impl Into<String>, last: impl Into<String>) -> Self {
@@ -278,6 +294,38 @@ impl Clock {
     }
 }
 
+/// What a marked cell gets drawn on it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Mark {
+    /// A ring round the cell, where its outline was before a cube landed.
+    #[default]
+    Frame,
+    /// A dot under the caption.
+    Dot,
+}
+
+/// When a marked cell is marked.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum When {
+    /// The moment every marked cube has arrived, which for a two sided search
+    /// is the moment its halves meet in the middle.
+    #[default]
+    Met,
+    /// Each one as its own cube lands.
+    Landed,
+    /// Once the whole figure has played out.
+    End,
+}
+
+/// What the cells a track points at get, and when they get it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Highlight {
+    pub mark: Mark,
+    pub when: When,
+    /// `None` takes the palette's own highlight.
+    pub color: Option<Rgb>,
+}
+
 /// How the cells are arranged and how much room each one gets.
 #[derive(Clone, Copy, Debug)]
 pub struct Layout {
@@ -292,6 +340,8 @@ pub struct Layout {
     /// Outline the cells no cube has reached yet, so the grid reads as a grid
     /// from the first frame.
     pub ghosts: bool,
+    /// What the cells a track points at get, and when.
+    pub highlight: Highlight,
 }
 
 impl Default for Layout {
@@ -302,6 +352,7 @@ impl Default for Layout {
             caption: 0.12,
             numbered: true,
             ghosts: true,
+            highlight: Highlight::default(),
         }
     }
 }
@@ -424,6 +475,14 @@ impl<'a> Lane<'a> {
         match self.at(t) {
             Some((_, Some((i, _)))) => self.track.moves.get(i),
             _ => None,
+        }
+    }
+
+    /// When cell `i` gets its cube.
+    fn arrival(&self, i: usize) -> f64 {
+        match i.checked_sub(1) {
+            None => self.clock.start,
+            Some(move_) => self.clock.turn_end(move_),
         }
     }
 
@@ -587,6 +646,78 @@ impl Painter<'_> {
     }
 }
 
+impl Painter<'_> {
+    /// What a marked cell gets: a ring where its outline was, or a dot under
+    /// what is written beneath it.
+    fn mark(&self, cell: &Cell, how: Mark, color: Rgb) -> String {
+        match how {
+            Mark::Frame => {
+                let inset = self.st.size * 0.05;
+                format!(
+                    "<rect x=\"{}\" y=\"{}\" width=\"{side}\" height=\"{side}\" \
+                     rx=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\"/>",
+                    num(cell.x + inset),
+                    num(cell.y + inset),
+                    num(self.st.size * 0.06),
+                    color.hex(),
+                    num(self.st.stroke * 2.4),
+                    side = num(self.st.size - 2.0 * inset),
+                )
+            }
+            Mark::Dot => format!(
+                "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"{}\"/>",
+                num(cell.x + self.st.size * 0.5),
+                num(cell.y + self.st.size + self.grid.caption * 1.06),
+                num(self.grid.caption * 0.19),
+                color.hex(),
+            ),
+        }
+    }
+
+    /// The marks, grouped by the moment they appear and written once each, so
+    /// that the frames only have to fade them up.
+    fn marks_in_time(
+        &mut self,
+        lanes: &[Lane],
+        how: &Highlight,
+        played: f64,
+    ) -> Vec<(f64, String)> {
+        let color = how.color.unwrap_or(self.pal.highlight);
+        let mut pending: Vec<(f64, String)> = Vec::new();
+        for lane in lanes {
+            for cell in lane
+                .track
+                .highlight
+                .iter()
+                .filter_map(|i| lane.cells.get(*i).map(|c| (i, c)))
+            {
+                let (i, cell) = cell;
+                pending.push((lane.arrival(*i), self.mark(cell, how.mark, color)));
+            }
+        }
+        if pending.is_empty() {
+            return Vec::new();
+        }
+        // Everything together at one moment, or each as its own cube lands.
+        let at = |all: f64| -> Vec<(f64, String)> {
+            pending.iter().map(|(_, m)| (all, m.clone())).collect()
+        };
+        let timed = match how.when {
+            When::Landed => pending.clone(),
+            When::Met => at(pending.iter().map(|(t, _)| *t).fold(0.0, f64::max)),
+            When::End => at(played),
+        };
+        let mut layers: BTreeMap<i64, String> = BTreeMap::new();
+        for (t, markup) in timed {
+            *layers.entry((t / TOGETHER).round() as i64).or_default() += &markup;
+        }
+        layers
+            .into_iter()
+            .map(|(key, body)| (key as f64 * TOGETHER, self.gallery.intern(body)))
+            .collect()
+    }
+}
+
 /// How solid the arriving cube is, a fraction of the way through its turn. It
 /// finishes materialising before the turn lands, so the end of the rotation is
 /// seen at full strength.
@@ -596,7 +727,13 @@ fn fade(t: f64) -> f64 {
 
 /// One frame: the grid as it stands at `t`, with every cube that has landed
 /// and the ones turning their way in.
-fn compose(lanes: &[Lane], t: f64, ghosts: Option<&str>, p: &mut Painter) -> String {
+fn compose(
+    lanes: &[Lane],
+    t: f64,
+    ghosts: Option<&str>,
+    marks: &[(&str, f64)],
+    p: &mut Painter,
+) -> String {
     let mut s = String::new();
     if let Some(id) = ghosts {
         s.push_str(&format!("<use href=\"#{id}\"/>"));
@@ -631,6 +768,10 @@ fn compose(lanes: &[Lane], t: f64, ghosts: Option<&str>, p: &mut Painter) -> Str
             ));
         }
     }
+    // Over the cubes, so what is pointed at is not half hidden behind one.
+    for (id, up) in marks {
+        s.push_str(&format!("<use href=\"#{id}\" opacity=\"{}\"/>", num(*up)));
+    }
     s
 }
 
@@ -655,10 +796,16 @@ fn label(lanes: &[Lane], start: f64, middle: f64) -> String {
     "wait".to_string()
 }
 
-/// The moments the figure has to draw: every turn sampled `steps` times, and
-/// every arrival and landing, which are what the player steps between.
-fn moments(lanes: &[Lane], steps: usize) -> Vec<(f64, bool)> {
+/// The moments the figure has to draw: every turn sampled `steps` times,
+/// every arrival and landing, which are what the player steps between, and
+/// each marking coming in over `over`.
+fn moments(lanes: &[Lane], steps: usize, marked: &[(f64, String)], over: f64) -> Vec<(f64, bool)> {
     let mut marks = vec![(0.0, true)];
+    for (from, _) in marked {
+        for s in 0..=steps {
+            marks.push((from + over * s as f64 / steps as f64, s == steps));
+        }
+    }
     for lane in lanes {
         marks.push((lane.clock.start, true));
         for i in 0..lane.track.moves.len() {
@@ -709,7 +856,7 @@ pub fn timeline(
         .flat_map(|l| l.cells.iter().map(|c| c.col + 1))
         .max()
         .unwrap_or(1);
-    let over = lanes
+    let played = lanes
         .iter()
         .map(|l| l.clock.end(l.track.moves.len()))
         .fold(0.0, f64::max);
@@ -722,7 +869,15 @@ pub fn timeline(
         grid: &grid,
         gallery: Gallery::new(format!("m{:x}", fingerprint(tracks))),
     };
-    let moments = moments(&lanes, pace.steps);
+    // A mark comes in over a turn's worth of time, and the figure waits for
+    // the last of them before it starts over.
+    let marking = pace.ms;
+    let marked = p.marks_in_time(&lanes, &layout.highlight, played);
+    let over = marked
+        .iter()
+        .map(|(t, _)| t + marking)
+        .fold(played, f64::max);
+    let moments = moments(&lanes, pace.steps, &marked, marking);
     let mut frames: Vec<Frame> = Vec::with_capacity(moments.len());
     for (i, &(t, is_state)) in moments.iter().enumerate() {
         // A frame is up until the next moment, and the last one rests on the
@@ -732,7 +887,14 @@ pub fn timeline(
             None => (over - t).max(pace.beat()),
         };
         let ghosts = layout.ghosts.then(|| p.ghosts(&lanes, t));
-        let markup = compose(&lanes, t, ghosts.as_deref(), &mut p);
+        let showing: Vec<(&str, f64)> = marked
+            .iter()
+            .filter_map(|(from, id)| {
+                let up = ease((t - from) / marking);
+                (up > 0.0).then_some((id.as_str(), up))
+            })
+            .collect();
+        let markup = compose(&lanes, t, ghosts.as_deref(), &showing, &mut p);
         // Nothing on screen changed, so this is the same frame held longer:
         // which is what a rest on a landed state is, and what a row waiting
         // for another to finish looks like.
@@ -743,13 +905,16 @@ pub fn timeline(
             last.is_state |= is_state;
             continue;
         }
+        let name = match (i, frames.last()) {
+            (0, _) => "start".to_string(),
+            // Past the last landing nothing is turning, so rather than say so
+            // the figure goes on saying what it last did.
+            (_, Some(prev)) if t >= played => prev.label.clone(),
+            _ => label(&lanes, t, t + ms * 0.5),
+        };
         frames.push(Frame {
             markup,
-            label: if i == 0 {
-                "start".to_string()
-            } else {
-                label(&lanes, t, t + ms * 0.5)
-            },
+            label: name,
             ms,
             is_state,
         });
@@ -791,11 +956,13 @@ pub fn meet(cube: &Cube, forward: &[Move], backward: &[Move], pause: f64) -> Vec
         Track::new(cube.clone(), forward.to_vec())
             .at(0, 0)
             .titled("forwards")
-            .captioned("scrambled", "meet"),
+            .captioned("scrambled", "meet")
+            .marking_last(),
         Track::rewound(target, backward)
             .at(1, columns - 1)
             .titled("backwards")
-            .captioned(end, "meet"),
+            .captioned(end, "meet")
+            .marking_last(),
         Track::new(cube.clone(), whole)
             .at(2, 0)
             .after(wait)
@@ -820,6 +987,7 @@ fn fingerprint(tracks: &[Track]) -> u64 {
         }
         eat(t.title.as_bytes());
         eat(&[t.row as u8, t.col as u8, t.delay as u8, t.back as u8]);
+        eat(&t.highlight.iter().map(|i| *i as u8).collect::<Vec<u8>>());
     }
     h
 }
