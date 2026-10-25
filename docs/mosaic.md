@@ -81,7 +81,7 @@ do not reach into each other's drawings.
 Python:
 
 ```python
-import magiccube as mc
+import magic_cube as mc
 
 # one sequence filling a grid
 mc.mosaic(mc.Cube(), "R U R' U'", columns=5, size=150)

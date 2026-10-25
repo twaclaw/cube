@@ -66,15 +66,36 @@ prefix.
 ## From Python, and from a notebook
 
 The same renderer, as a Python module (I wanted a marimo notebook but can be any Python client).
-See [cube.py](./notebooks/cube.py). 
-
-
+See [cube.py](./notebooks/cube.py) and [crates/cube-py/README.md](./crates/cube-py/README.md).
 
 ```sh
-make python     # maturin develop: builds magiccube into .venv
-make notebook   # opens notebooks/cube.py in marimo
-make post       # runs the notebook, writes figures/, exports cube.md
+pip install magic-cube
 ```
+
+```python
+import magic_cube as mc
+
+cube = mc.Cube()
+cube.apply("R U R' U'")
+cube.view3d(yaw=38, pitch=24)
+```
+
+The wheels are abi3, so one per platform covers every CPython from 3.9 up and
+nothing needs a Rust toolchain to install. The import name is `magic_cube`,
+with an underscore: `magiccube` on PyPI is an unrelated cube library, which is
+why the distribution is `magic-cube` rather than that.
+
+```sh
+make python         # maturin develop: builds magic_cube into .venv
+make notebook       # opens notebooks/cube.py in marimo
+make post           # runs the notebook, writes figures/, exports cube.md
+make release-check  # builds the wheel and the sdist, checks the metadata
+```
+
+Releasing is a tag: push `py-v<version>` and
+[release.yml](./.github/workflows/release.yml) builds wheels for Linux, macOS
+and Windows plus a source distribution, then publishes to PyPI by trusted
+publishing. The version comes from `crates/cube-py/Cargo.toml`.
 
 
 ## Exports

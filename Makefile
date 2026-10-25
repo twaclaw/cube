@@ -17,7 +17,7 @@ NOTEBOOK     ?= notebooks/cube.py
 NB_PORT      ?= 2718
 APP_PORT     ?= 2719
 
-.PHONY: help dev preview build test lint fmt update figures og vectors python notebook app page post clean
+.PHONY: help dev preview build test lint fmt update figures og vectors python notebook app page post wheel sdist release-check clean
 
 help: ## Show this help
 	@printf "$(BOLD)cube$(RESET) -- a Rubik's cube in 3D and as a net, drawn in SVG\n"
@@ -57,7 +57,7 @@ $(VENV):
 	uv venv $(VENV)
 	uv pip install --python $(VENV)/bin/python maturin marimo
 
-python: $(VENV) ## Build the magiccube Python module into .venv
+python: $(VENV) ## Build the magic_cube Python module into .venv
 	VIRTUAL_ENV=$(abspath $(VENV)) $(VENV)/bin/maturin develop --release \
 	    --manifest-path crates/cube-py/Cargo.toml
 
@@ -70,6 +70,21 @@ app: python ## Serve the notebook as a read-only app (outputs only)
 page: python ## Run the notebook into one self-contained HTML file
 	$(VENV)/bin/marimo export html $(NOTEBOOK) -o $(basename $(NOTEBOOK)).html
 	@echo "wrote $(basename $(NOTEBOOK)).html"
+
+wheel: $(VENV) ## Build the release wheel into dist/
+	$(VENV)/bin/maturin build --release --manifest-path crates/cube-py/Cargo.toml \
+	    --out dist
+	@ls -l dist
+
+sdist: $(VENV) ## Build the source distribution into dist/
+	$(VENV)/bin/maturin sdist --manifest-path crates/cube-py/Cargo.toml --out dist
+	@ls -l dist
+
+release-check: wheel sdist ## Build both and check the metadata PyPI will see
+	uv pip install --quiet --python $(VENV)/bin/python twine
+	$(VENV)/bin/twine check dist/*
+	@printf "$(BOLD)Ready.$(RESET) Tag py-v<version> to publish; "
+	@printf "the version comes from crates/cube-py/Cargo.toml.\n"
 
 post: python ## Run the notebook, then export it as markdown
 	$(VENV)/bin/python $(NOTEBOOK)

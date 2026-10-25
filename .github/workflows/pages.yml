@@ -29,6 +29,11 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+      # cube-py is excluded from the workspace, so --workspace misses it. It
+      # is the published Python package, so check it on its own.
+      - run: cargo fmt --manifest-path crates/cube-py/Cargo.toml --check
+      - run: cargo clippy --manifest-path crates/cube-py/Cargo.toml --all-targets -- -D warnings
+
   build:
     runs-on: ubuntu-latest
     steps:

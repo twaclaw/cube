@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/twaclaw/cube"
 
 [lib]
-name = "magiccube"
+name = "magic_cube"
 crate-type = ["cdylib"]
 
 [profile.release]

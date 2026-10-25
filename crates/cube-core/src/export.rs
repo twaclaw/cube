@@ -324,6 +324,27 @@ pub fn strip_svg(
     s
 }
 
+/// The same embed as a figure a document can style: a `cube-embed` wrapper to
+/// hang CSS on, no inline border to fight it, and an optional caption. This is
+/// the shape the Python binding returns, so a book can draw a live cube from a
+/// cell the way it draws a still one.
+pub fn embed_figure(base_url: &str, query: &str, height: u32, caption: Option<&str>) -> String {
+    let iframe = format!(
+        "<iframe src=\"{}?{}\" height=\"{height}\" loading=\"lazy\" \
+         title=\"Rubik's cube\"></iframe>",
+        escape(base_url),
+        escape(query)
+    );
+    match caption {
+        Some(text) => format!(
+            "<div class=\"cube-embed\"><figure>{iframe}<figcaption>{}</figcaption>\
+             </figure></div>",
+            escape(text)
+        ),
+        None => format!("<div class=\"cube-embed\">{iframe}</div>"),
+    }
+}
+
 /// Markup that embeds the live app, which keeps the figure interactive.
 pub fn embed_snippet(base_url: &str, query: &str, height: u32) -> String {
     format!(

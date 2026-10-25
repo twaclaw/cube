@@ -123,7 +123,7 @@ fn parse_moves(n: u8, word: &str) -> PyResult<Vec<cube_core::Move>> {
 }
 
 /// One drawing, ready to show in a notebook or save beside a post.
-#[pyclass(module = "magiccube")]
+#[pyclass(module = "magic_cube")]
 #[derive(Clone)]
 pub struct Drawing {
     text: String,
@@ -178,7 +178,7 @@ impl Drawing {
 }
 
 /// A state read as a permutation of the numbered facelets.
-#[pyclass(module = "magiccube")]
+#[pyclass(module = "magic_cube")]
 #[derive(Clone)]
 pub struct Permutation {
     inner: CorePermutation,
@@ -246,7 +246,7 @@ impl Permutation {
 }
 
 /// A two phase solution.
-#[pyclass(module = "magiccube")]
+#[pyclass(module = "magic_cube")]
 #[derive(Clone)]
 pub struct Solution {
     #[pyo3(get)]
@@ -283,7 +283,7 @@ fn solver() -> &'static Kociemba {
 }
 
 /// A cube, drawn the way the app draws it.
-#[pyclass(module = "magiccube")]
+#[pyclass(module = "magic_cube")]
 #[derive(Clone)]
 pub struct Cube {
     inner: CoreCube,
@@ -1058,12 +1058,59 @@ fn encoded(text: &str) -> String {
         .collect()
 }
 
+/// Facelets to ring, as a list of numbers or the app's own `1,3,8-11` string.
+/// Checked against this cube, so a number that does not exist fails here
+/// rather than quietly ringing nothing.
+fn highlights(n: u8, rings: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
+    let numbers = match rings.extract::<Vec<u32>>() {
+        Ok(list) => list,
+        Err(_) => {
+            let text: String = rings.extract().map_err(|_| {
+                PyValueError::new_err(
+                    "rings is a list of facelet numbers, or a string such as \"1,3,8-11\"",
+                )
+            })?;
+            let number = |part: &str| {
+                part.trim().parse::<u32>().map_err(|_| {
+                    PyValueError::new_err(format!("{part:?} is not a facelet number or a range"))
+                })
+            };
+            let mut out = Vec::new();
+            for part in text.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                match part.split_once('-') {
+                    Some((first, last)) => {
+                        let (first, last) = (number(first)?, number(last)?);
+                        if first > last {
+                            return Err(PyValueError::new_err(format!("{part:?} runs backwards")));
+                        }
+                        out.extend(first..=last);
+                    }
+                    None => out.push(number(part)?),
+                }
+            }
+            out
+        }
+    };
+    for which in &numbers {
+        if facelet_from_label(n, *which).is_none() {
+            return Err(PyKeyError::new_err(format!(
+                "this cube has no facelet {which}"
+            )));
+        }
+    }
+    Ok(numbers)
+}
+
 /// An `<iframe>` of the published app, showing this state: the one export that
 /// stays interactive, because the page itself does the drawing.
+///
+/// `rings` and `caption` are what a figure in a document needs beyond the
+/// app's own state, so the markup comes back wrapped in a `cube-embed` div,
+/// and in a `<figure>` when there is a caption to carry.
 #[pyfunction]
 #[pyo3(signature = (cube, word="", base_url="https://twaclaw.github.io/cube/", height=420,
                     numbers=false, autoplay=false, views=None, controls=false,
-                    yaw=38.0, pitch=24.0))]
+                    yaw=38.0, pitch=24.0, rings=None, caption=None))]
 #[allow(clippy::too_many_arguments)]
 fn embed(
     cube: &Cube,
@@ -1076,6 +1123,8 @@ fn embed(
     controls: bool,
     yaw: f64,
     pitch: f64,
+    rings: Option<&Bound<'_, PyAny>>,
+    caption: Option<&str>,
 ) -> PyResult<String> {
     parse_moves(cube.inner.n(), word)?;
     let mut query = vec![
@@ -1099,7 +1148,19 @@ fn embed(
     if let Some(which) = views {
         query.push(format!("views={which}"));
     }
-    Ok(export::embed_snippet(base_url, &query.join("&"), height))
+    if let Some(rings) = rings {
+        let numbers = highlights(cube.inner.n(), rings)?;
+        if !numbers.is_empty() {
+            let list: Vec<String> = numbers.iter().map(u32::to_string).collect();
+            query.push(format!("hl={}", list.join(",")));
+        }
+    }
+    Ok(export::embed_figure(
+        base_url,
+        &query.join("&"),
+        height,
+        caption,
+    ))
 }
 
 /// Solve a cube and return both phases.
@@ -1249,7 +1310,7 @@ fn faces() -> Vec<String> {
 }
 
 #[pymodule]
-fn magiccube(module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn magic_cube(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Cube>()?;
     module.add_class::<Drawing>()?;
     module.add_class::<Permutation>()?;

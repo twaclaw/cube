@@ -19,7 +19,7 @@ def _(mo):
 def _():
     from pathlib import Path
 
-    import magiccube as mc
+    import magic_cube as mc
     import marimo as mo
 
     HERE = Path(__file__).parent if "__file__" in globals() else Path.cwd()

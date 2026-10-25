@@ -1,17 +1,34 @@
 [build-system]
-requires = ["maturin>=1.7,<2"]
+requires = ["maturin>=1.8,<2"]
 build-backend = "maturin"
 
 [project]
-name = "magiccube"
+name = "magic-cube"
 description = "Rubik's cube drawings: the 3D view, the net and cycle notation, as SVG"
+readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Diego Sandoval", email = "dsandovalv@gmail.com" }]
+keywords = ["rubik", "rubiks-cube", "svg", "kociemba", "permutation-group", "animation"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Multimedia :: Graphics",
 ]
 dynamic = ["version"]
 
+[project.urls]
+Homepage = "https://github.com/twaclaw/cube"
+Repository = "https://github.com/twaclaw/cube"
+"Try it online" = "https://twaclaw.github.io/cube/"
+Book = "https://twaclaw.github.io/magic-cube/"
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "magiccube"
+# Must match [lib] name in Cargo.toml.
+module-name = "magic_cube"
