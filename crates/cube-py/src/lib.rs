@@ -66,7 +66,9 @@ fn parse_color(text: &str) -> PyResult<Rgb> {
         .find(|(name, _)| name.eq_ignore_ascii_case(text))
         .map(|(_, hex)| Rgb::from_hex(*hex))
         .ok_or_else(|| {
-            PyValueError::new_err(format!("no colour called {text}: use a name or #rrggbb"))
+            PyValueError::new_err(format!(
+                "no colour called {text}: use a name or #rrggbb"
+            ))
         })
 }
 
@@ -92,11 +94,7 @@ fn facelets_of_key(n: u8, key: &Bound<'_, PyAny>) -> PyResult<Vec<Facelet>> {
 }
 
 /// `{"UFR": "red", 25: "#0051ba"}` as something the renderers understand.
-fn marks_from(
-    n: u8,
-    fills: Option<&Bound<'_, PyDict>>,
-    rings: Option<&Bound<'_, PyDict>>,
-) -> PyResult<Marks> {
+fn marks_from(n: u8, fills: Option<&Bound<'_, PyDict>>, rings: Option<&Bound<'_, PyDict>>) -> PyResult<Marks> {
     let mut marks = Marks::new();
     for (source, is_fill) in [(fills, true), (rings, false)] {
         let Some(dict) = source else { continue };
@@ -157,9 +155,7 @@ impl Drawing {
             return self.text.clone();
         }
         let quoted = self.text.replace('&', "&amp;").replace('"', "&quot;");
-        format!(
-            "<iframe srcdoc=\"{quoted}\" width=\"100%\" height=\"460\" style=\"border:0\"></iframe>"
-        )
+        format!("<iframe srcdoc=\"{quoted}\" width=\"100%\" height=\"460\" style=\"border:0\"></iframe>")
     }
 
     fn __repr__(&self) -> String {
@@ -173,7 +169,10 @@ impl Drawing {
 
 impl Drawing {
     fn svg_of(text: String) -> Self {
-        Self { text, is_svg: true }
+        Self {
+            text,
+            is_svg: true,
+        }
     }
 }
 
@@ -660,7 +659,7 @@ fn player(cube: &Cube, word: &str, steps: usize, ms: f64, title: &str) -> PyResu
 
 /// The settings a track in a mosaic understands.
 const TRACK_KEYS: &[&str] = &[
-    "cube", "word", "row", "col", "back", "delay", "ms", "hold", "wrap", "labels", "title", "glow",
+    "cube", "word", "row", "col", "back", "delay", "ms", "hold", "wrap", "labels", "title",
     "first", "last",
 ];
 
@@ -707,18 +706,6 @@ fn dict_list(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<Vec<String>> {
     }
 }
 
-/// Cells to light, as indices, or every one of them for `True`.
-fn dict_glow(dict: &Bound<'_, PyDict>, key: &str, cells: usize) -> PyResult<Vec<usize>> {
-    match dict.get_item(key)? {
-        None => Ok(Vec::new()),
-        Some(value) => match value.extract::<bool>() {
-            Ok(true) => Ok(vec![cells.saturating_sub(1)]),
-            Ok(false) => Ok(Vec::new()),
-            Err(_) => value.extract(),
-        },
-    }
-}
-
 /// One row of a mosaic, read off the dict that describes it.
 fn mosaic_track(item: &Bound<'_, PyAny>) -> PyResult<export::mosaic::Track> {
     let dict = item
@@ -759,13 +746,6 @@ fn mosaic_track(item: &Bound<'_, PyAny>) -> PyResult<export::mosaic::Track> {
     track.wrap = dict_flag(dict, "wrap")?;
     track.labels = dict_list(dict, "labels")?;
     track.title = dict_text(dict, "title")?;
-    track.glow = dict_glow(dict, "glow", track.cells())?;
-    if let Some(past) = track.glow.iter().find(|i| **i >= track.cells()) {
-        return Err(PyValueError::new_err(format!(
-            "a track of {} cells has no cell {past} to light",
-            track.cells()
-        )));
-    }
     track.first = dict_text(dict, "first")?;
     track.last = dict_text(dict, "last")?;
     if back && track.col < track.moves.len() {
@@ -787,7 +767,6 @@ fn mosaic_plan(
     meet: Option<&str>,
     pause: f64,
     titles: Option<Vec<String>>,
-    glow: Option<bool>,
 ) -> PyResult<(Vec<export::mosaic::Track>, String)> {
     let (mut rows, caption) = if let Some(list) = tracks {
         let rows = list
@@ -828,22 +807,6 @@ fn mosaic_plan(
             row.title = title;
         }
     }
-    // A two sided figure lights the pair it meets on of its own accord; any
-    // other lights the cube each row ends on, and only when asked.
-    match glow {
-        Some(true) => {
-            for row in rows.iter_mut().filter(|r| r.glow.is_empty()) {
-                let last = row.cells() - 1;
-                row.glow = vec![last];
-            }
-        }
-        Some(false) => {
-            for row in rows.iter_mut() {
-                row.glow.clear();
-            }
-        }
-        None => {}
-    }
     Ok((rows, caption))
 }
 
@@ -855,8 +818,6 @@ fn mosaic_timeline(
     meet: Option<&str>,
     pause: f64,
     titles: Option<Vec<String>>,
-    glow: Option<bool>,
-    glow_color: Option<&str>,
     columns: usize,
     steps: usize,
     ms: f64,
@@ -867,7 +828,7 @@ fn mosaic_timeline(
     numbered: bool,
     ghosts: bool,
 ) -> PyResult<(export::Timeline, String)> {
-    let (rows, caption) = mosaic_plan(cube, word, tracks, meet, pause, titles, glow)?;
+    let (rows, caption) = mosaic_plan(cube, word, tracks, meet, pause, titles)?;
     let camera = Camera {
         yaw,
         pitch,
@@ -882,7 +843,6 @@ fn mosaic_timeline(
         columns: columns.max(1),
         numbered,
         ghosts,
-        glow: glow_color.map(parse_color).transpose()?,
         ..export::mosaic::Layout::default()
     };
     let pace = export::mosaic::Pace { ms, hold, steps };
@@ -924,16 +884,10 @@ fn mosaic_timeline(
 /// beside it. `titles` names the rows of a figure you did not build by hand.
 /// `ms` is how long a turn takes and `hold` how long a landed state is left up
 /// before the next turn starts.
-///
-/// Once the figure has played out, the cubes a track points at light up. A two
-/// sided figure lights the pair its two searches meet on; `glow=False` turns
-/// that off and `glow=True` lights the cube every row ends on. A track of your
-/// own says which of its cells to light with `"glow": [3]`, or `True` for the
-/// one it ends on, and `glow_color` says in what colour.
 #[pyfunction]
 #[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1.0, titles=None,
-                    glow=None, glow_color=None, columns=8, steps=6, ms=420.0, hold=None,
-                    size=160.0, yaw=38.0, pitch=24.0, numbered=true, ghosts=true, background=None))]
+                    columns=8, steps=6, ms=420.0, hold=None, size=160.0, yaw=38.0,
+                    pitch=24.0, numbered=true, ghosts=true, background=None))]
 #[allow(clippy::too_many_arguments)]
 fn mosaic(
     cube: Option<&Cube>,
@@ -942,8 +896,6 @@ fn mosaic(
     meet: Option<&str>,
     pause: f64,
     titles: Option<Vec<String>>,
-    glow: Option<bool>,
-    glow_color: Option<&str>,
     columns: usize,
     steps: usize,
     ms: f64,
@@ -956,8 +908,8 @@ fn mosaic(
     background: Option<&str>,
 ) -> PyResult<Drawing> {
     let (tl, _) = mosaic_timeline(
-        cube, word, tracks, meet, pause, titles, glow, glow_color, columns, steps, ms, hold, size,
-        yaw, pitch, numbered, ghosts,
+        cube, word, tracks, meet, pause, titles, columns, steps, ms, hold, size, yaw, pitch,
+        numbered, ghosts,
     )?;
     Ok(Drawing::svg_of(export::animated_svg(&tl, background)))
 }
@@ -967,8 +919,8 @@ fn mosaic(
 /// sided figure steps both of its rows at once.
 #[pyfunction]
 #[pyo3(signature = (cube=None, word="", tracks=None, meet=None, pause=1.0, titles=None,
-                    glow=None, glow_color=None, columns=8, steps=6, ms=420.0, hold=None,
-                    size=160.0, yaw=38.0, pitch=24.0, numbered=true, ghosts=true, title="Rubik's cube"))]
+                    columns=8, steps=6, ms=420.0, hold=None, size=160.0, yaw=38.0,
+                    pitch=24.0, numbered=true, ghosts=true, title="Rubik's cube"))]
 #[allow(clippy::too_many_arguments)]
 fn mosaic_player(
     cube: Option<&Cube>,
@@ -977,8 +929,6 @@ fn mosaic_player(
     meet: Option<&str>,
     pause: f64,
     titles: Option<Vec<String>>,
-    glow: Option<bool>,
-    glow_color: Option<&str>,
     columns: usize,
     steps: usize,
     ms: f64,
@@ -991,8 +941,8 @@ fn mosaic_player(
     title: &str,
 ) -> PyResult<Drawing> {
     let (tl, caption) = mosaic_timeline(
-        cube, word, tracks, meet, pause, titles, glow, glow_color, columns, steps, ms, hold, size,
-        yaw, pitch, numbered, ghosts,
+        cube, word, tracks, meet, pause, titles, columns, steps, ms, hold, size, yaw, pitch,
+        numbered, ghosts,
     )?;
     Ok(Drawing {
         text: export::player_html(&tl, title, &caption),
@@ -1044,11 +994,7 @@ fn embed(
     if !word.trim().is_empty() {
         query.push(format!("seq={}", encoded(word.trim())));
     }
-    for (flag, on) in [
-        ("numbers", numbers),
-        ("autoplay", autoplay),
-        ("controls", controls),
-    ] {
+    for (flag, on) in [("numbers", numbers), ("autoplay", autoplay), ("controls", controls)] {
         if on {
             query.push(format!("{flag}=1"));
         }
