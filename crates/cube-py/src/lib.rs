@@ -128,6 +128,9 @@ fn parse_moves(n: u8, word: &str) -> PyResult<Vec<cube_core::Move>> {
 pub struct Drawing {
     text: String,
     is_svg: bool,
+    /// How tall a frame the HTML needs, when the drawing knows; otherwise a
+    /// frame gets the old fixed height.
+    height: Option<f64>,
 }
 
 #[pymethods]
@@ -157,8 +160,11 @@ impl Drawing {
             return self.text.clone();
         }
         let quoted = self.text.replace('&', "&amp;").replace('"', "&quot;");
+        let height = self
+            .height
+            .map_or("460".to_string(), |h| format!("{}", h.ceil()));
         format!(
-            "<iframe srcdoc=\"{quoted}\" width=\"100%\" height=\"460\" style=\"border:0\"></iframe>"
+            "<iframe srcdoc=\"{quoted}\" width=\"100%\" height=\"{height}\" style=\"border:0\"></iframe>"
         )
     }
 
@@ -173,7 +179,11 @@ impl Drawing {
 
 impl Drawing {
     fn svg_of(text: String) -> Self {
-        Self { text, is_svg: true }
+        Self {
+            text,
+            is_svg: true,
+            height: None,
+        }
     }
 }
 
@@ -655,6 +665,7 @@ fn player(cube: &Cube, word: &str, steps: usize, ms: f64, title: &str) -> PyResu
     Ok(Drawing {
         text: export::player_html(&timeline(cube, word, steps, ms)?, title, &line),
         is_svg: false,
+        height: None,
     })
 }
 
@@ -1040,6 +1051,7 @@ fn mosaic_player(
     Ok(Drawing {
         text: export::player_html(&tl, title, &caption),
         is_svg: false,
+        height: None,
     })
 }
 
@@ -1260,6 +1272,7 @@ fn tree_drawing(tree: &graphs::Tree, style: &graphs::Style, app: Option<String>)
         Some(url) => Drawing {
             text: tree.html(style, Some(&url)),
             is_svg: false,
+            height: None,
         },
         None => Drawing::svg_of(tree.svg(style)),
     }
@@ -1368,6 +1381,103 @@ fn faces() -> Vec<String> {
     Face::ALL.iter().map(|f| f.letter().to_string()).collect()
 }
 
+/// The Cayley graph of the group a few maneuvers generate, with the cube that
+/// each element *is* drawn at every vertex.
+///
+/// `gens` are the generators, written the way the rest of the library writes
+/// moves. Distance counts only the generators given, so `["U", "D"]` puts `U'`
+/// three moves out; pass `["U", "U'", "D", "D'"]` for the undirected graph
+/// where it is one, and the edges then come out as lines rather than arrows.
+///
+/// `rings` stops the graph that many moves out from solved, which is how a
+/// group too big to draw whole is drawn at all: `rings=2` with the twelve
+/// quarter turns is the first two rings of the 3x3x3's own Cayley graph.
+/// `None` draws every element.
+///
+/// `layout` is one of
+///
+/// * `shells`, concentric rings one move apart, with the solved cube in the
+///   middle: the number of rings is God's number for these generators;
+/// * `grid`, for two generators that commute, which draws the torus they are;
+/// * `ring`, when alternating the generators walks the whole group and comes
+///   home, which draws that walk as the cycle it is;
+/// * `circle`, everything on one circle in the order the search found it.
+///
+/// A big graph is drawn at the size it needs rather than squeezed onto a page,
+/// so `pane` says how the page should hold it:
+///
+/// * `scroll`, the figure at full size in a box that scrolls;
+/// * `zoom`, the whole figure fitted into the box, with the wheel to zoom into
+///   a region and a drag to pan, which is the one to use in a narrow column;
+/// * `full`, no box at all.
+///
+/// `pane_height` is how tall that box is, in pixels.
+#[pyfunction]
+#[pyo3(signature = (gens=None, n=3, rings=None, layout="shells", spread=2.0, limit=None,
+                    caption="", size=46.0, zoom=3.4, flat=false, yaw=34.0,
+                    pitch=26.0, pane="scroll", pane_height=640.0, app=None))]
+#[allow(clippy::too_many_arguments)]
+fn cayley(
+    gens: Option<Vec<String>>,
+    n: u8,
+    rings: Option<usize>,
+    layout: &str,
+    spread: f64,
+    limit: Option<usize>,
+    caption: &str,
+    size: f64,
+    zoom: f64,
+    flat: bool,
+    yaw: f64,
+    pitch: f64,
+    pane: &str,
+    pane_height: f64,
+    app: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Drawing> {
+    let words = gens.unwrap_or_else(|| vec!["U".to_string(), "D".to_string()]);
+    let borrowed: Vec<&str> = words.iter().map(String::as_str).collect();
+    let which = match layout {
+        "shells" => graphs::Layout::Shells,
+        "circle" => graphs::Layout::Circle,
+        "grid" => graphs::Layout::Grid,
+        "ring" => graphs::Layout::Ring,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "no layout called {other:?}: try shells, circle, grid or ring"
+            )));
+        }
+    };
+    let box_ = match pane {
+        "scroll" => graphs::Pane::Scroll(pane_height),
+        "zoom" => graphs::Pane::Zoom(pane_height),
+        "full" | "none" => graphs::Pane::Full,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "no pane called {other:?}: try scroll, zoom or full"
+            )));
+        }
+    };
+    let graph = graphs::cayley_rings(n, &borrowed, rings, limit.unwrap_or(graphs::DEFAULT_LIMIT))
+        .map_err(PyValueError::new_err)?
+        .with_layout(which)
+        .with_spread(spread)
+        .with_pane(box_)
+        .with_caption(caption);
+    let style = tree_style(size, zoom, flat, yaw, pitch);
+    let url = app_url(app)?;
+    if url.is_none() && graph.pane == graphs::Pane::Full {
+        return Ok(Drawing::svg_of(graph.svg(&style)));
+    }
+    // A pane is HTML, so a graph that wants one is not a bare SVG, and it says
+    // how tall it is so that the frame a notebook puts it in does not cut it.
+    let (text, height) = graph.html_sized(&style, url.as_deref());
+    Ok(Drawing {
+        text,
+        is_svg: false,
+        height: Some(height),
+    })
+}
+
 #[pymodule]
 fn magic_cube(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Cube>()?;
@@ -1390,6 +1500,7 @@ fn magic_cube(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(solve, module)?)?;
     module.add_function(wrap_pyfunction!(table_tree, module)?)?;
     module.add_function(wrap_pyfunction!(search_tree, module)?)?;
+    module.add_function(wrap_pyfunction!(cayley, module)?)?;
     module.add_function(wrap_pyfunction!(faces, module)?)?;
     module.add("__doc__", "The cube drawings, for notebooks.")?;
     Ok(())

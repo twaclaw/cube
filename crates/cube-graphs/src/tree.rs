@@ -18,7 +18,7 @@ use cube_core::render::cube3d::{self, Camera, Style3d};
 use cube_core::render::svg::{P2, num, open};
 
 /// User units each cube is drawn in before `<use>` scales it to a box.
-const CUBE_UNITS: f64 = 300.0;
+pub(crate) const CUBE_UNITS: f64 = 300.0;
 
 /// One row of the panel a node opens.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -646,7 +646,7 @@ fn collect_marks(node: &Node, into: &mut Vec<Mark>) {
 }
 
 /// Enough of a hash to keep two figures on one page from sharing a CSS scope.
-fn hash(caption: &str, nodes: usize, placed: usize) -> u64 {
+pub(crate) fn hash(caption: &str, nodes: usize, placed: usize) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
     for b in caption.as_bytes() {
         h = (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3);
@@ -659,11 +659,11 @@ fn hash(caption: &str, nodes: usize, placed: usize) -> u64 {
 
 /// A rough width for a run of text: the figure only needs to know how much
 /// room to leave, so this errs generous.
-fn text_w(s: &str, font: f64) -> f64 {
+pub(crate) fn text_w(s: &str, font: f64) -> f64 {
     0.58 * font * s.chars().count() as f64
 }
 
-fn escape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

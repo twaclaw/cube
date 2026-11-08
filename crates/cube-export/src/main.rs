@@ -25,7 +25,7 @@ usage: cube-export [options] > out.svg
   -p, --preset NAME     named view (U F R, Isometric, Front, Up, ...)
       --zoom K          camera zoom (default 1)
   -m, --mode MODE       still | net | strip | anim | player | mosaic |
-                        mosaic-player | table-tree | search-tree
+                        mosaic-player | table-tree | search-tree | cayley
                         (default still)
       --numbers         facelet numbers on the net
       --highlight LIST  facelet numbers to ring, e.g. 1,3,8-11
@@ -58,6 +58,19 @@ usage: cube-export [options] > out.svg
       --budget N        force one move budget instead of the first that works
       --cut N           cut branches drawn per node (default 2)
       --app URL         wrap in html, with a draggable cube from that app
+ cayley graphs (--mode cayley)
+      --gens LIST       the generators, e.g. U,D or U,U',D,D' (default U,D)
+      --layout NAME     shells | circle | grid | ring (default shells)
+      --rings N         stop N moves out from solved (default: the whole group)
+      --spread K        vertex spacing, as a multiple of a vertex (default 2)
+      --limit N         refuse to draw a group bigger than this (default 2048)
+      --pane MODE       how a big figure is held: scroll | zoom | full
+                        (default scroll; zoom fits it and lets the wheel in).
+                        Anything but full wraps the svg in html, so write it
+                        to a .html file
+      --pane-height N   how tall that pane is (default 640)
+      --caption TEXT    a line under the figure
+
   -o, --out FILE        write to FILE instead of stdout
   -h, --help            this text
 ";
@@ -105,6 +118,14 @@ struct Args {
     budget: Option<usize>,
     cut: usize,
     app: Option<String>,
+    gens: String,
+    rings: Option<usize>,
+    layout: String,
+    spread: f64,
+    limit: usize,
+    pane: String,
+    pane_height: f64,
+    caption: String,
 }
 
 impl Default for Args {
@@ -142,6 +163,14 @@ impl Default for Args {
             budget: None,
             cut: 2,
             app: None,
+            gens: "U,D".to_string(),
+            rings: None,
+            layout: "shells".to_string(),
+            spread: 2.0,
+            limit: cube_graphs::DEFAULT_LIMIT,
+            pane: "scroll".to_string(),
+            pane_height: 640.0,
+            caption: String::new(),
         }
     }
 }
@@ -202,6 +231,16 @@ fn run() -> Result<(), String> {
             "--budget" => a.budget = Some(value()?.parse().map_err(|_| "bad budget")?),
             "--cut" => a.cut = value()?.parse().map_err(|_| "bad count")?,
             "--app" => a.app = Some(value()?),
+            "--gens" => a.gens = value()?,
+            "--rings" => a.rings = Some(value()?.parse().map_err(|_| "bad ring count")?),
+            "--layout" => a.layout = value()?,
+            "--spread" => a.spread = value()?.parse().map_err(|_| "bad spread")?,
+            "--limit" => a.limit = value()?.parse().map_err(|_| "bad limit")?,
+            "--pane" => a.pane = value()?,
+            "--pane-height" => {
+                a.pane_height = value()?.parse().map_err(|_| "bad pane height")?;
+            }
+            "--caption" => a.caption = value()?,
             "-o" | "--out" => a.out = Some(value()?),
             other => return Err(format!("unknown option {other}")),
         }
@@ -326,6 +365,52 @@ fn run() -> Result<(), String> {
             let tree = cube_graphs::search_tree(&tables, &state, phase, a.budget, 4000, a.cut)
                 .ok_or("that state is not one this search can start from")?;
             draw_tree(&tree, &a)
+        }
+        "cayley" => {
+            let words: Vec<&str> = a
+                .gens
+                .split(',')
+                .map(str::trim)
+                .filter(|w| !w.is_empty())
+                .collect();
+            let layout = match a.layout.as_str() {
+                "shells" => cube_graphs::Layout::Shells,
+                "circle" => cube_graphs::Layout::Circle,
+                "grid" => cube_graphs::Layout::Grid,
+                "ring" => cube_graphs::Layout::Ring,
+                other => {
+                    return Err(format!(
+                        "no layout called {other:?}: try shells, circle, grid or ring"
+                    ));
+                }
+            };
+            let pane = match a.pane.as_str() {
+                "scroll" => cube_graphs::Pane::Scroll(a.pane_height),
+                "zoom" => cube_graphs::Pane::Zoom(a.pane_height),
+                "full" | "none" => cube_graphs::Pane::Full,
+                other => {
+                    return Err(format!(
+                        "no pane called {other:?}: try scroll, zoom or full"
+                    ));
+                }
+            };
+            let graph = cube_graphs::cayley_rings(a.n, &words, a.rings, a.limit)?
+                .with_layout(layout)
+                .with_spread(a.spread)
+                .with_pane(pane)
+                .with_caption(a.caption.clone());
+            let style = cube_graphs::Style {
+                flat: a.flat,
+                camera: a.cam.clamped(),
+                ..cube_graphs::Style::default()
+            };
+            // A pane is HTML, so asking for one asks for the HTML wrapper
+            // even when no app is there to host a draggable cube.
+            match (a.app.as_deref(), graph.pane) {
+                (Some(url), _) => graph.html(&style, Some(url)),
+                (None, cube_graphs::Pane::Full) => graph.svg(&style),
+                (None, _) => graph.html(&style, None),
+            }
         }
         other => return Err(format!("unknown mode {other}")),
     };
