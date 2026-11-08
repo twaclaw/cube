@@ -135,8 +135,11 @@ cargo run -p cube-export -- --scramble 6 --seed 3 -s "F2 D B2" --meet "U' F' L" 
 
 The app reads its own state from the query string, which is what the embed
 snippet uses: `?n=3&seq=R+U+R%27+U%27&cam=38,24&numbers=1&hl=1,3&embed=1&autoplay=1`.
-`views=3d` or `views=net` shows one view only; `controls=1` keeps the console
-in an embed.
+`views=3d`, `views=net` or `views=perm` shows one view only, and a comma list
+such as `views=3d,perm` shows just those; `controls=1` keeps the console in an
+embed, with its view select narrowed to the views `views` names.
+`title-3d=`, `title-net=` and `title-perm=` put a small header on top of that
+view.
 
 ## Running it
 

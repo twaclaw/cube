@@ -68,6 +68,14 @@ main { width: min(1180px, 100%); display: grid; gap: 1.25rem; }
   gap: .6rem;
 }
 
+/* ?title-3d= and friends: an optional line naming what a figure shows. */
+.view-title {
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--soft);
+  letter-spacing: .01em;
+}
+
 .stage {
   display: grid;
   place-items: center;
@@ -93,6 +101,7 @@ figcaption {
 .hint { margin-left: auto; font-style: italic; opacity: .8; }
 
 label { display: inline-flex; gap: .35rem; align-items: center; }
+label[hidden] { display: none; }
 .check { user-select: none; }
 
 input[type=text], input[type=number], select {
@@ -272,6 +281,20 @@ body.embed { padding: .5rem; gap: .5rem; }
 body.embed .page-head, body.embed .console, body.embed .editor,
 body.embed .about, body.embed figcaption { display: none; }
 body.embed .view { box-shadow: none; }
+
+/* An embed fills its frame exactly. The frame's height is set by the page
+   that holds it, while the stage sizes itself from the width, so left alone
+   the two disagree and the difference shows as a band of empty space under
+   the views. Instead the height runs down the chain -- body, main, the views,
+   each view -- and the stage takes whatever is left, so the margin below the
+   views is the same .5rem as above them, at any frame height. The cube is
+   an SVG with a viewBox, so it stays square and centred in whatever it gets. */
+body.embed { box-sizing: border-box; height: 100vh; display: flex; flex-direction: column; }
+body.embed main { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: .5rem; }
+body.embed main > * { flex: none; }
+body.embed main > .views { flex: 1 1 0; min-height: 0; align-items: stretch; grid-auto-rows: minmax(0, 1fr); }
+body.embed .view { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+body.embed .stage { flex: 1 1 0; height: auto; min-height: 0; }
 
 /* ?controls=1 puts the console back: the maneuver box, the transport, the
    solver, and the view select that chooses where the solution is shown.

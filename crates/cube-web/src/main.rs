@@ -22,27 +22,113 @@ fn now() -> f64 {
     dom::now()
 }
 
-/// Show the figure the view select names, hiding the rest.
+/// The figures a view can name, in the order they sit on the page, each with
+/// the words the view select uses for it.
+const VIEWS: [(&str, &str); 3] = [
+    ("3d", "3D cube"),
+    ("net", "unfolded net"),
+    ("perm", "permutation"),
+];
+
+/// The figures a comma separated list names, in page order and each once.
+/// Names it does not know are dropped, so a list of nothing but those comes
+/// back empty and the caller falls back to the default.
+fn parse_views(spec: &str) -> Vec<&'static str> {
+    let asked: Vec<&str> = spec.split(',').map(str::trim).collect();
+    VIEWS
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| asked.contains(name))
+        .collect()
+}
+
+/// What the view select calls a set of figures: "3D cube", or
+/// "3D cube and permutation", or "3D cube, unfolded net and permutation".
+fn views_label(views: &[&str]) -> String {
+    let words: Vec<&str> = views
+        .iter()
+        .filter_map(|v| VIEWS.iter().find(|(name, _)| name == v).map(|(_, w)| *w))
+        .collect();
+    match words.split_last() {
+        None => String::new(),
+        Some((last, [])) => (*last).to_string(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// Narrow the view select to the figures `?views=` allows: the whole set
+/// first, as the default, then each of them alone. With one figure there is
+/// nothing to choose, so the select goes away.
+fn restrict_view_select(views: &[&str]) {
+    let select = dom::select("view");
+    let mut options = String::new();
+    if views.len() > 1 {
+        options.push_str(&format!(
+            "<option value=\"{}\">{}</option>",
+            views.join(","),
+            views_label(views)
+        ));
+    }
+    for view in views {
+        options.push_str(&format!(
+            "<option value=\"{view}\">{}</option>",
+            views_label(&[view])
+        ));
+    }
+    select.set_inner_html(&options);
+    if views.len() == 1
+        && let Some(label) = select.parent_element()
+    {
+        let _ = label.set_attribute("hidden", "");
+    }
+}
+
+/// Put a small header on top of each figure that `?title-3d=`, `?title-net=`
+/// or `?title-perm=` names one for. The text goes in as text, never as
+/// markup, since it arrives in a URL anyone can write.
+fn add_titles(params: &web_sys::UrlSearchParams) {
+    for (name, _) in VIEWS {
+        let Some(text) = params.get(&format!("title-{name}")) else {
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let Ok(header) = dom::document().create_element("div") else {
+            continue;
+        };
+        header.set_class_name("view-title");
+        let _ = header.insert_adjacent_text("afterbegin", text);
+        let _ = dom::by_id(&format!("fig-{name}")).insert_adjacent_element("afterbegin", &header);
+    }
+}
+
+/// Show the figures the view select names, hiding the rest.
 ///
-/// An empty name is the default: the two cube views share the row, with the
-/// permutation panel underneath. That panel is the one asymmetry -- it is a
-/// page of text rather than a picture, so an embed leaves it out unless it
-/// was asked for by name. Whether this is an embed is read back off the body
-/// rather than threaded through, so the change handler needs no state.
+/// The value is one figure or a comma separated list of them. An empty one is
+/// the default: the two cube views share the row, with the permutation panel
+/// underneath. That panel is the one asymmetry -- it is a page of text rather
+/// than a picture, so an embed leaves it out unless it was asked for by name.
+/// Whether this is an embed is read back off the body rather than threaded
+/// through, so the change handler needs no state.
 fn apply_view(view: &str) {
     let classes = dom::document().body().expect("a body").class_list();
     for name in ["hide-3d", "hide-net", "hide-perm"] {
         let _ = classes.remove_1(name);
     }
-    let hidden: &[&str] = match view {
-        "3d" => &["hide-net", "hide-perm"],
-        "net" => &["hide-3d", "hide-perm"],
-        "perm" => &["hide-3d", "hide-net"],
-        _ if classes.contains("embed") => &["hide-perm"],
-        _ => &[],
+    let shown = parse_views(view);
+    let shown: &[&str] = if !shown.is_empty() {
+        &shown
+    } else if classes.contains("embed") {
+        &["3d", "net"]
+    } else {
+        &["3d", "net", "perm"]
     };
-    for name in hidden {
-        let _ = classes.add_1(name);
+    for (name, _) in VIEWS {
+        if !shown.contains(&name) {
+            let _ = classes.add_1(&format!("hide-{name}"));
+        }
     }
 }
 
@@ -106,17 +192,18 @@ fn main() {
             let _ = classes.add_1("with-controls");
         }
     }
-    // ?views= names the one figure to keep, and is also where the view select
-    // starts. Anything unrecognised falls back to the default rather than
-    // leaving the select showing a value it does not have.
-    let view = match params.get("views").as_deref() {
-        Some("3d") => "3d",
-        Some("net") => "net",
-        Some("perm") => "perm",
-        _ => "",
-    };
-    dom::select("view").set_value(view);
-    apply_view(view);
+    // ?views= names the figures to keep, one or a comma separated list, and
+    // narrows the view select to just those. Anything unrecognised falls back
+    // to the default rather than leaving the select showing a value it does
+    // not have.
+    let views = parse_views(&params.get("views").unwrap_or_default());
+    let view = views.join(",");
+    if !views.is_empty() {
+        restrict_view_select(&views);
+    }
+    dom::select("view").set_value(&view);
+    apply_view(&view);
+    add_titles(&params);
     dom::on_id::<web_sys::Event, _>("view", "change", |_| {
         apply_view(&dom::select("view").value());
     });
