@@ -15,7 +15,7 @@ use cube_core::solver::tables::{N_MOVES, move_name};
 use cube_core::solver::{Kociemba, SolveError, search::Limits};
 use cube_core::{Cube as CoreCube, Permutation as CorePermutation, notation};
 use cube_graphs as graphs;
-use pyo3::exceptions::{PyKeyError, PyValueError};
+use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString};
 use std::collections::BTreeMap;
@@ -1101,8 +1101,52 @@ fn highlights(n: u8, rings: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
     Ok(numbers)
 }
 
+/// The figures an embed may show, in the order the app lays them out.
+const EMBED_VIEWS: [&str; 3] = ["3d", "net", "perm"];
+
+/// The figures `views` names, from one name, a comma separated string such as
+/// `"3d,perm"`, or a list such as `["3d", "perm"]`. They come back in page
+/// order, each once, since that is the order the app shows them in anyway.
+fn view_list(views: &Bound<'_, PyAny>) -> PyResult<Vec<&'static str>> {
+    let asked: Vec<String> = match views.extract::<String>() {
+        Ok(text) => text.split(',').map(|v| v.trim().to_string()).collect(),
+        Err(_) => views.extract::<Vec<String>>().map_err(|_| {
+            PyTypeError::new_err(
+                "views is a view name, a string such as \"3d,perm\", or a list of names",
+            )
+        })?,
+    };
+    let asked: Vec<&str> = asked
+        .iter()
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .collect();
+    if let Some(bad) = asked.iter().find(|v| !EMBED_VIEWS.contains(v)) {
+        return Err(PyValueError::new_err(format!(
+            "no view called {bad:?}: try 3d, net or perm"
+        )));
+    }
+    if asked.is_empty() {
+        return Err(PyValueError::new_err(
+            "views names no view: try 3d, net or perm, or leave it out for the default",
+        ));
+    }
+    Ok(EMBED_VIEWS
+        .into_iter()
+        .filter(|v| asked.contains(v))
+        .collect())
+}
+
 /// An `<iframe>` of the published app, showing this state: the one export that
 /// stays interactive, because the page itself does the drawing.
+///
+/// `views` picks the figures on show: `"3d"`, `"net"` or `"perm"` alone, or
+/// several as `"3d,perm"` or `["3d", "perm"]`. With `controls` the app's view
+/// select offers only those, so a reader cannot switch to one left out. Left
+/// as `None`, an embed shows the 3D cube and the net.
+///
+/// `titles` puts a small header on top of a view, keyed by the view's name:
+/// `{"3d": "after R U", "perm": "as cycles"}`. Any view can go without one.
 ///
 /// `rings` and `caption` are what a figure in a document needs beyond the
 /// app's own state, so the markup comes back wrapped in a `cube-embed` div,
@@ -1110,7 +1154,7 @@ fn highlights(n: u8, rings: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
 #[pyfunction]
 #[pyo3(signature = (cube, word="", base_url="https://twaclaw.github.io/cube/", height=420,
                     numbers=false, autoplay=false, views=None, controls=false,
-                    yaw=38.0, pitch=24.0, rings=None, caption=None))]
+                    yaw=38.0, pitch=24.0, rings=None, caption=None, titles=None))]
 #[allow(clippy::too_many_arguments)]
 fn embed(
     cube: &Cube,
@@ -1119,12 +1163,13 @@ fn embed(
     height: u32,
     numbers: bool,
     autoplay: bool,
-    views: Option<&str>,
+    views: Option<&Bound<'_, PyAny>>,
     controls: bool,
     yaw: f64,
     pitch: f64,
     rings: Option<&Bound<'_, PyAny>>,
     caption: Option<&str>,
+    titles: Option<std::collections::HashMap<String, String>>,
 ) -> PyResult<String> {
     parse_moves(cube.inner.n(), word)?;
     let mut query = vec![
@@ -1145,8 +1190,22 @@ fn embed(
             query.push(format!("{flag}=1"));
         }
     }
-    if let Some(which) = views {
-        query.push(format!("views={which}"));
+    if let Some(views) = views {
+        query.push(format!("views={}", view_list(views)?.join(",")));
+    }
+    if let Some(titles) = titles {
+        if let Some(bad) = titles.keys().find(|v| !EMBED_VIEWS.contains(&v.as_str())) {
+            return Err(PyValueError::new_err(format!(
+                "no view called {bad:?} to title: try 3d, net or perm"
+            )));
+        }
+        for view in EMBED_VIEWS {
+            if let Some(text) = titles.get(view).map(|t| t.trim())
+                && !text.is_empty()
+            {
+                query.push(format!("title-{view}={}", encoded(text)));
+            }
+        }
     }
     if let Some(rings) = rings {
         let numbers = highlights(cube.inner.n(), rings)?;
