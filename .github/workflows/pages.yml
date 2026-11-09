@@ -42,16 +42,48 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - name: Install trunk
-        env:
-          TRUNK_VERSION: v0.22.1
+      # The build tools come from crates.io and npm, never from GitHub release
+      # downloads: those have been timing out with 504s, and trunk fetches
+      # wasm-bindgen and wasm-opt from them itself when they are not on PATH.
+      # trunk takes a wasm-bindgen from PATH only when its version matches the
+      # crate's exactly, so that version is read from Cargo.lock. wasm-opt has
+      # no recent build on crates.io; the npm package is binaryen's own.
+      - name: Tool versions
+        id: tools
         run: |
           set -eu
-          curl -fsSL --retry 3 \
-            "https://github.com/trunk-rs/trunk/releases/download/${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
-            | tar -xz -C "$RUNNER_TEMP" trunk
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/trunk" --version
+          bindgen=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)
+          test -n "$bindgen"
+          echo "trunk=0.22.1" >> "$GITHUB_OUTPUT"
+          echo "bindgen=$bindgen" >> "$GITHUB_OUTPUT"
+          echo "binaryen=123.0.0" >> "$GITHUB_OUTPUT"
+          echo "dir=$HOME/.cube-tools" >> "$GITHUB_OUTPUT"
+      - name: Cache the build tools
+        id: tools-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.tools.outputs.dir }}
+          key: tools-${{ runner.os }}-trunk${{ steps.tools.outputs.trunk }}-bindgen${{ steps.tools.outputs.bindgen }}-binaryen${{ steps.tools.outputs.binaryen }}
+      - name: Install trunk, wasm-bindgen and wasm-opt
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        env:
+          DIR: ${{ steps.tools.outputs.dir }}
+        run: |
+          set -eu
+          cargo install --locked --root "$DIR" trunk --version "${{ steps.tools.outputs.trunk }}"
+          cargo install --locked --root "$DIR" wasm-bindgen-cli --version "${{ steps.tools.outputs.bindgen }}"
+          npm install --prefix "$DIR/npm" --no-audit --no-fund "binaryen@${{ steps.tools.outputs.binaryen }}"
+      - name: Put the build tools on PATH
+        env:
+          DIR: ${{ steps.tools.outputs.dir }}
+        run: |
+          set -eu
+          echo "$DIR/bin" >> "$GITHUB_PATH"
+          echo "$DIR/npm/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$DIR/bin:$DIR/npm/node_modules/.bin:$PATH"
+          trunk --version
+          wasm-bindgen --version
+          wasm-opt --version
 
       # Reports the path the site is served from, so the build does not have to
       # guess it. This step cannot switch Pages on: the action's `enablement`
